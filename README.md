@@ -1,6 +1,6 @@
 # The Human-Bear Conflict Radar
 
-The following repository contains the code and files required to run the Human-Bear Conflict Radar, a digital twin for forecasting and monitoring conflict between humans and bears. Alongside this is a folder with the code used to develop the models used within the HBC Radar: the conflict risk model and the dispersal model.
+The following repository contains the code and files required to run the Human-Bear Conflict Radar, a digital twin for forecasting and monitoring conflict between humans and bears. Alongside this is a folder with the code used to develop the models used within the HBC Radar: the conflict risk model and the dispersal model. This work is described in detail within "Davison, A. M., Acosta, I., Arp, M., Doykin, N., Ganchev, N., Todorov, V. and de Koning, K. (*in review*). The Human-Bear Conflict Radar: An operational ecological digital twin for forecasting and monitoring conflict between humans and European brown bears (Ursus arctos) in Bulgaria." Further details and DOI for this publication will be shared here when available.
 
 ![screenshot](Figure8.png)
 

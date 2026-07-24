@@ -321,111 +321,284 @@ while(sum(bins_prior!=bins_posterior)>0) {
   bins_posterior <- bins
 }
 summary(as.factor(BearMove$cluster))
-sumstat <- aggregate(log(dist_km)~round(log(dtime/24),1)+Gender,BearMove[BearMove$cluster==2,],function(x){quantile(x,0.9772)})
-sumstat$N <-  aggregate(log(dist_km)~round(log(dtime/24),1)+Gender,BearMove[BearMove$cluster==2,],length)[,3]
-names(sumstat) <- c("log_dtime","Gender","log_dist","N")
-sumstat$median_dist <- aggregate(log(dist_km)~round(log(dtime/24),1)+Gender,BearMove[BearMove$cluster==2,],function(x){quantile(x,sqrt(.5))})[,3]
-sumstat <- sumstat[sumstat$log_dtime <4,]
-#sumstat <- sumstat[sumstat$dtime >0,]
-Model_uppermove <- lm(log_dist~log_dtime+Gender,sumstat,weights = sumstat$N)
-Model_move2 <- lm(median_dist~log_dtime+Gender,sumstat,weights = sumstat$N)
+
+bins <- (order(BearMove$dtime[BearMove$cluster==2])-1)%/%250
+sumstat <- aggregate(log(dtime)~bins,BearMove[BearMove$cluster==2,],median)
+sumstat$log_dist <- aggregate(log(dist_km)~bins,BearMove[BearMove$cluster==2,],function(x){quantile(x,0.9772^2)})[,2]
+sumstat$N <-  aggregate(log(dist_km)~bins,BearMove[BearMove$cluster==2,],length)[,2]
+sumstat$median_dist <-  aggregate(log(dist_km)~bins,BearMove[BearMove$cluster==2,],median)[,2]
+names(sumstat) <- c("bin","log_dtime","upper_dist","N","median_dist")
+sumstat <- sumstat[sumstat$N>200,]    # remove long tail with insufficient data
+sumstat$dtime <- exp(sumstat$log_dtime)
+sumstat$time_dist_upp <- sumstat$dtime*exp(sumstat$upper_dist)
+sumstat$time_dist_med <- sumstat$dtime*exp(sumstat$median_dist)
+# fit model
+Model_uppermove <- lm(upper_dist~log_dtime,sumstat,weights = sumstat$N)
+Model_move2 <- lm(median_dist~log_dtime,sumstat,weights = sumstat$N)
 summary(Model_uppermove)
-abline(Model_uppermove,col="blue")
+summary(Model_move2)
 
 # plot median and upper 95% bound
-plot(dist_km~dtime,BearMove[BearMove$cluster==2,],xlim=c(0,144),ylim=c(0,15),pch=20, cex=0.5, col="grey70",main="Bear displacement",xlab="Hours since last observation", ylab="Distance from origin (km)")
-Nobs <- aggregate(dist_km~round(log(dtime),1),BearMove[BearMove$cluster==2,],length)$dist_km
-aggregated_median <- aggregate(dist_km~round(log(dtime/24),1),BearMove[BearMove$cluster==2,],function(x){quantile(x,sqrt(.5))})
-names(aggregated_median) <- c("log_dtime","dist_km")
-aggregated_median$dtime <- exp(aggregated_median$log_dtime)*24
-lines(dist_km~dtime,aggregated_median,lwd=2)
-aggregated_upper <- aggregate(dist_km~round(log(dtime/24),1),BearMove[BearMove$cluster==2,],function(x){quantile(x,0.9772)})
-names(aggregated_upper) <- c("log_dtime","dist_km")
-aggregated_upper$dtime <- exp(aggregated_upper$log_dtime)*24
-lines(dist_km~dtime,aggregated_upper,lty=2, lwd=2)
+plot(dist_km~dtime,BearMove[BearMove$cluster==2,],xlim=c(0,10),ylim=c(0,7),pch=20, cex=0.5, col="grey70",main="Bear displacement",xlab="Hours since last observation", ylab="Distance from origin (km)")
+lines(exp(sumstat$log_dtime),exp(sumstat$median_dist),lwd=2)
+lines(exp(sumstat$log_dtime),exp(sumstat$upper_dist),lwd=2,lty=2)
 #lines(aggregate(dist_km~round(dtime),BearMove,function(x){quantile(x,0.05)}),lty=2, lwd=2)
 legend("topleft",legend=c("raw data","median per day","upper 95% bound per day","predicted"),cex=0.8,
        lty=c(NA,1,2,1),lwd=c(NA,2,2,1),pch=c(20,NA,NA,NA),col=c("grey70","black","black","blue"))
 hours <- c(seq(0.01,0.99,by=0.01),1:150)
-distance <- exp(coef(Model_move2)[1]+coef(Model_move2)[2]*log(hours/24))
-lines(distance~hours,col="darkgreen",lty=2)
-distanceF <- exp(coef(Model_uppermove)[1]+coef(Model_uppermove)[2]*log(hours/24))
-lines(distanceF~hours,col="magenta")
-distanceM <- exp(coef(Model_uppermove)[1]+coef(Model_uppermove)[2]*log(hours/24)+coef(Model_uppermove)[3])
-lines(distanceM~hours,col="blue")
+distance <- exp(coef(Model_move2)[1]+coef(Model_move2)[2]*log(hours))
+lines(distance~hours,col="blue",lwd=2)
+distanceF <- exp(coef(Model_uppermove)[1]+coef(Model_uppermove)[2]*log(hours))
+lines(distanceF~hours,col="blue",lwd=2,lty=2)
 
-# check how many observations fall outside 95% confidence interval overall:
-summary(BearMove$dist_km[BearMove$month>3&BearMove$month<12]>exp(predict(Model_uppermove,BearMove)))
-2213/(2213+76224)
-2258/(2258+81825)
+# plot median and upper 95% bound
+plot(dist_km~dtime,BearMove[BearMove$cluster==2,],xlim=c(0,144),ylim=c(0,15),pch=20, cex=0.5, col="grey70",main="Bear displacement",xlab="Hours since last observation", ylab="Distance from origin (km)")
+legend("topleft",legend=c("raw data","median","upper 95% bound","predicted rational","predicted exponential"),cex=0.8,
+       lty=c(NA,1,2,1,2),lwd=c(NA,2,2,2,2),pch=c(20,NA,NA,NA,NA),col=c("grey70","black","black","blue","blue"))
+lines(exp(sumstat$log_dtime),exp(sumstat$median_dist),lwd=2)
+lines(exp(sumstat$log_dtime),exp(sumstat$upper_dist),lwd=2,lty=2)
+# try different model:
+Model_uppermove2 <- lm(exp(upper_dist)~time_dist_upp+dtime+0,sumstat,weights = sumstat$N/exp(sumstat$upper_dist))
+Model_meanmove2 <- lm(exp(median_dist)~time_dist_med+dtime+0,sumstat,weights = sumstat$N/exp(sumstat$upper_dist))
+hours <- exp(seq(-8,5,by=0.1))
+b <- -1/coef(Model_uppermove2)[1]
+a <- coef(Model_uppermove2)[2]*b
+distance <- a*hours/(b+hours)
+lines(distance~hours,col="blue",lwd=2)
+b <- -1/coef(Model_meanmove2)[1]
+a <- coef(Model_meanmove2)[2]*b
+distance <- a*hours/(b+hours)
+lines(distance~hours,col="blue",lwd=2)
+distance <- exp(coef(Model_move2)[1]+coef(Model_move2)[2]*log(hours))
+lines(distance~hours,col="blue",lty=2,lwd=2)
+distanceM <- exp(coef(Model_uppermove)[1]+coef(Model_uppermove)[2]*log(hours))
+lines(distanceM~hours,col="blue",lty=2,lwd=2)
 
+## Leave three bears out Cross-Validation: (= 7-fold CV)
+TID <- unique(BearMove$track_ID)
+folds <- (1:length(TID) - 1) %/% 3 + 1
+set.seed(5000) # set random seed for fixed results
+TID <- sample(TID)
+CV_results <- data.frame()
+for (FOLD in 1:7) {
+  ID_test <- TID[folds==FOLD]
+  ID_train <- TID[folds!=FOLD]
+  
+  BearMove.subset <- BearMove[BearMove$track_ID%in%ID_train&BearMove$cluster==2,]
+  BearMove.subset <- BearMove.subset[order(BearMove.subset$dtime),]
+  BearMove.valset <- BearMove[BearMove$track_ID%in%ID_test&BearMove$cluster==2,]
+  BearMove.valset <- BearMove.valset[order(BearMove.valset$dtime),]
+  
+  # generate training set
+  bins <- (order(BearMove.subset$dtime)-1)%/%250
+  sumstat.train <- aggregate(log(dtime)~bins,BearMove.subset,median)
+  sumstat.train$log_dist <- aggregate(log(dist_km)~bins,BearMove.subset,function(x){quantile(x,0.9772)})[,2]
+  sumstat.train$N <-  aggregate(log(dist_km)~bins,BearMove.subset,length)[,2]
+  sumstat.train$median_dist <-  aggregate(log(dist_km)~bins,BearMove.subset,median)[,2]
+  names(sumstat.train) <- c("bin","log_dtime","upper_dist","N","median_dist")
+  sumstat.train <- sumstat.train[sumstat.train$N>200,]    # remove long tail with insufficient data
+  sumstat.train$dtime <- exp(sumstat.train$log_dtime)
+  sumstat.train$time_dist_upp <- sumstat.train$dtime*exp(sumstat.train$upper_dist)
+  sumstat.train$time_dist_med <- sumstat.train$dtime*exp(sumstat.train$median_dist)
+  
+  # fit model
+  Model_uppermove <- lm(upper_dist~log_dtime,sumstat.train,weights = sumstat.train$N)
+  Model_medianmove <- lm(median_dist~log_dtime,sumstat.train,weights = sumstat.train$N)
+  Model_uppermove2 <- lm(exp(upper_dist)~time_dist_upp+dtime+0,sumstat.train,weights = sumstat.train$N/exp(sumstat.train$upper_dist))
+  Model_meanmove2 <- lm(exp(median_dist)~time_dist_med+dtime+0,sumstat.train,weights = sumstat.train$N/exp(sumstat.train$upper_dist))
+  
+  # generate test set
+  bins <- (order(BearMove.valset$dtime)-1)%/%100
+  sumstat.test <- aggregate(log(dtime)~bins,BearMove.valset,median)
+  sumstat.test$log_dist <- aggregate(log(dist_km)~bins,BearMove.valset,function(x){quantile(x,0.9772)})[,2]
+  sumstat.test$N <-  aggregate(log(dist_km)~bins,BearMove.valset,length)[,2]
+  sumstat.test$median_dist <-  aggregate(log(dist_km)~bins,BearMove.valset,median)[,2]
+  names(sumstat.test) <- c("bin","log_dtime","upper_dist","N","median_dist")
+  sumstat.test <- sumstat.test[sumstat.test$N>80,]    # remove long tail with insufficient data
+  sumstat.test$dtime <- exp(sumstat.test$log_dtime)
+  sumstat.test$time_dist_upp <- sumstat.test$dtime*exp(sumstat.test$upper_dist)
+  sumstat.test$time_dist_med <- sumstat.test$dtime*exp(sumstat.test$median_dist)
+  
+  # add predicted values
+  sumstat.test$upper_pred <- predict(Model_uppermove,sumstat.test)
+  sumstat.test$median_pred <- predict(Model_medianmove,sumstat.test)
+  b <- -1/coef(Model_uppermove2)[1]
+  a <- coef(Model_uppermove2)[2]*b
+  sumstat.test$upper_pred2 <- log(a*sumstat.test$dtime/(b+sumstat.test$dtime))
+  b <- -1/coef(Model_meanmove2)[1]
+  a <- coef(Model_meanmove2)[2]*b
+  sumstat.test$median_pred2 <- log(a*sumstat.test$dtime/(b+sumstat.test$dtime))
+  
+  # calculate squared error and total variance: 
+  sumstat.test$upper_se1 <- (sumstat.test$upper_dist-sumstat.test$upper_pred)^2
+  sumstat.test$upper_se2 <- (sumstat.test$upper_dist-sumstat.test$upper_pred2)^2
+  sumstat.test$upper_var <- (sumstat.test$upper_dist-mean(sumstat.test$upper_dist))^2
+  sumstat.test$median_se1 <- (sumstat.test$median_dist-sumstat.test$median_pred)^2
+  sumstat.test$median_se2 <- (sumstat.test$median_dist-sumstat.test$median_pred2)^2
+  sumstat.test$median_var <- (sumstat.test$median_dist-mean(sumstat.test$median_dist))^2
+  sumstat.test$fold <- FOLD
+  
+  CV_results <- rbind(CV_results,sumstat.test)
+  
+}
+
+# calculate performance metrics
+Rsquared_upper <- 1-sum(CV_results$upper_se1)/sum(CV_results$upper_var)
+Rsquared_median <- 1-sum(CV_results$median_se1)/sum(CV_results$median_var)
+Rsquared_upper_adj <- 1-(1-Rsquared_upper)*(nrow(CV_results)-1)/(nrow(CV_results)-2)
+Rsquared_median_adj <- 1-(1-Rsquared_median)*(nrow(CV_results)-1)/(nrow(CV_results)-2)
+Rsquared_upper2 <- 1-sum(CV_results$upper_se2)/sum(CV_results$upper_var)
+Rsquared_median2 <- 1-sum(CV_results$median_se2)/sum(CV_results$median_var)
+Rsquared_upper_adj2 <- 1-(1-Rsquared_upper2)*(nrow(CV_results)-1)/(nrow(CV_results)-2)
+Rsquared_median_adj2 <- 1-(1-Rsquared_median2)*(nrow(CV_results)-1)/(nrow(CV_results)-2)
+Rsquared_upper_adj
+Rsquared_median_adj
+Rsquared_upper_adj2
+Rsquared_median_adj2
 
 # Model for climbing - warning! not all altitude measurements are accurate
-palette(rgb(coloursRGB$red,coloursRGB$green,coloursRGB$blue,alpha=1))
-
 plot(log(abs(climb))~log(dtime),BearMove,
      #xlim=c(0,40),
      #ylim=c(0,15),
-     pch=20, cex=0.5, col=BearMove$bear_name[BearMove$month>3&BearMove$month<12],
+     pch=20, cex=0.5, col="grey70",
      main="Bear climb/descend",
      xlab="Hours since last observation (log)", 
      ylab="Altitude change (log(metres))")
-lines(aggregate(log(abs(climb))~(round(log(dtime),1)),BearMove,function(x){quantile(x,sqrt(.5))}),lty=1, lwd=2)
-lines(aggregate(log(abs(climb))~(round(log(dtime),1)),BearMove,function(x){quantile(x,0.9772^2)}),lty=2, lwd=2)
-#lines(aggregate(dist_km~round(dtime),BearMove,function(x){quantile(x,0.05)}),lty=2, lwd=2)
+
+bins <- (order(BearMove$dtime)-1)%/%250
 legend("topleft",legend=c("raw data","upper 95% bound per day"),
        lty=c(NA,2),lwd=c(NA,2),pch=c(20,NA),col=c("grey70","black"))
-sumstat <- aggregate(log(abs(climb))~round(log(dtime),1)+Gender,BearMove,function(x){quantile(x,0.9772^2)})
-sumstat$N <-  aggregate(log(abs(climb))~round(log(dtime),1)+Gender,BearMove,length)[,3]
-sumstat$median_climb <-  aggregate(log(abs(climb))~round(log(dtime),1)+Gender,BearMove,function(x){quantile(x,sqrt(.5))})[,3]
-names(sumstat) <- c("log_dtime","Gender","log_climb","N","median_climb")
-sumstat <- sumstat[sumstat$log_dtime <5,]
-#sumstat <- sumstat[sumstat$dtime >0,]
-Model_upperclimb <- lm(log_climb~log_dtime+Gender,sumstat,weights = sumstat$N)
-Model_medianclimb <- lm(median_climb~log_dtime+Gender,sumstat,weights = sumstat$N)
+
+sumstat <- aggregate(log(dtime)~bins,BearMove,median)
+sumstat$log_climb <- aggregate(log(abs(climb))~bins,BearMove,function(x){quantile(x,0.9772)})[,2]
+sumstat$N <-  aggregate(log(abs(climb))~bins,BearMove,length)[,2]
+sumstat$median_climb <-  aggregate(log(abs(climb))~bins,BearMove,function(x){quantile(x,sqrt(.5))})[,2]
+names(sumstat) <- c("bin","log_dtime","log_climb","N","median_climb")
+sumstat <- sumstat[sumstat$N>200,]    # remove long tail with insufficient data
+lines(median_climb~log_dtime,sumstat,lty=1, lwd=2)
+lines(log_climb~log_dtime,sumstat,lty=2, lwd=2)
+# fit model
+Model_upperclimb <- lm(log_climb~log_dtime,sumstat,weights = sumstat$N)
+Model_medianclimb <- lm(median_climb~log_dtime,sumstat,weights = sumstat$N)
 summary(Model_upperclimb)
 summary(Model_medianclimb)
 abline(Model_upperclimb,col="blue")
 abline(Model_medianclimb,col="red")
 
+## Leave three bears out Cross-Validation: (= 6-fold CV)
+TID <- unique(BearMove$track_ID[!is.na(BearMove$climb)])
+folds <- (1:length(TID) - 1) %/% 3 + 1
+TID <- sample(TID)
+CV_results <- data.frame()
+for (FOLD in 1:6) {
+  ID_test <- TID[folds==FOLD]
+  ID_train <- TID[folds!=FOLD]
+  
+  BearMove.subset <- BearMove[BearMove$track_ID%in%ID_train,]
+  BearMove.subset <- BearMove.subset[order(BearMove.subset$dtime),]
+  BearMove.valset <- BearMove[BearMove$track_ID%in%ID_test,]
+  BearMove.valset <- BearMove.valset[order(BearMove.valset$dtime),]
+  
+  # generate training set
+  bins <- (order(BearMove.subset$dtime)-1)%/%250
+  sumstat.train <- aggregate(log(dtime)~bins,BearMove.subset,median)
+  sumstat.train$log_climb <- aggregate(log(abs(climb))~bins,BearMove.subset,function(x){quantile(x,0.9772^2)})[,2]
+  sumstat.train$N <-  aggregate(log(abs(climb))~bins,BearMove.subset,length)[,2]
+  sumstat.train$median_climb <-  aggregate(log(abs(climb))~bins,BearMove.subset,function(x){quantile(x,sqrt(.5))})[,2]
+  names(sumstat.train) <- c("bin","log_dtime","log_climb","N","median_climb")
+  sumstat.train <- sumstat.train[sumstat.train$N>200,]    # remove long tail with insufficient data
+  
+  # fit model
+  Model_upperclimb <- lm(log_climb~log_dtime,sumstat.train,weights = sumstat.train$N)
+  Model_medianclimb <- lm(median_climb~log_dtime,sumstat.train,weights = sumstat.train$N)
+  
+  # generate test set
+  bins <- (order(BearMove.valset$dtime)-1)%/%100
+  sumstat.test <- aggregate(log(dtime)~bins,BearMove.valset,median)
+  sumstat.test$log_climb <- aggregate(log(abs(climb))~bins,BearMove.valset,function(x){quantile(x,0.9772^2)})[,2]
+  sumstat.test$N <-  aggregate(log(abs(climb))~bins,BearMove.valset,length)[,2]
+  sumstat.test$median_climb <-  aggregate(log(abs(climb))~bins,BearMove.valset,function(x){quantile(x,sqrt(.5))})[,2]
+  names(sumstat.test) <- c("bin","log_dtime","log_climb","N","median_climb")
+  sumstat.test <- sumstat.test[sumstat.test$N>80,]    # remove long tail with insufficient data
+  # add predicted values
+  sumstat.test$upper_pred <- predict(Model_upperclimb,sumstat.test)
+  sumstat.test$median_pred <- predict(Model_medianclimb,sumstat.test)
+  # calculate squared error and total variance: 
+  sumstat.test$upper_se <- (sumstat.test$log_climb-sumstat.test$upper_pred)^2
+  sumstat.test$upper_var <- (sumstat.test$log_climb-mean(sumstat.test$log_climb))^2
+  sumstat.test$median_se <- (sumstat.test$median_climb-sumstat.test$median_pred)^2
+  sumstat.test$median_var <- (sumstat.test$median_climb-mean(sumstat.test$median_climb))^2
+  sumstat.test$fold <- FOLD
+  
+  CV_results <- rbind(CV_results,sumstat.test)
+  
+}
+
+# plot data
+plot(log(abs(climb))~log(dtime),BearMove[BearMove$track_ID%in%ID_train,],
+     #xlim=c(0,40),
+     #ylim=c(0,15),
+     pch=20, cex=0.5, col="grey70",
+     main="Bear climb/descend",
+     xlim=c(-2,5),
+     ylim=c(0,7),
+     xlab="Hours since last observation (log)", 
+     ylab="Altitude change (log(metres))")
+lines(log_climb~log_dtime, sumstat.train, lty=2,lwd=2)
+lines(median_climb~log_dtime, sumstat.train, lty=1,lwd=2)
+#lines(aggregate(dist_km~round(dtime),BearMove,function(x){quantile(x,0.05)}),lty=2, lwd=2)
+legend("topleft",legend=c("raw data","upper 95% bound per day"),
+       lty=c(NA,2),lwd=c(NA,2),pch=c(20,NA),col=c("grey70","black"))
+abline(Model_upperclimb,col="blue")
+abline(Model_medianclimb,col="red")
+
+#plot results:
+plot(log(abs(climb))~log(dtime),BearMove[BearMove$track_ID%in%ID_test,],
+     #xlim=c(0,40),
+     #ylim=c(0,15),
+     pch=20, cex=0.5, col="grey70",
+     main="Bear climb/descend",
+     xlim=c(-2,5),
+     ylim=c(0,7),
+     xlab="Hours since last observation (log)", 
+     ylab="Altitude change (log(metres))")
+lines(log_climb~log_dtime, sumstat.test, lty=2,lwd=2)
+lines(median_climb~log_dtime, sumstat.test, lty=1,lwd=2)
+abline(Model_upperclimb,col="blue")
+abline(Model_medianclimb,col="red")
+lines(upper_pred~log_dtime, sumstat.test, lty=2,lwd=2)
+lines(median_pred~log_dtime, sumstat.test, lty=2,lwd=2)
+
+# calculate performance metrics
+Rsquared_upper <- 1-sum(CV_results$upper_se)/sum(CV_results$upper_var)
+Rsquared_median <- 1-sum(CV_results$median_se)/sum(CV_results$median_var)
+Rsquared_upper_adj <- 1-(1-Rsquared_upper)*(nrow(CV_results)-1)/(nrow(CV_results)-2)
+Rsquared_median_adj <- 1-(1-Rsquared_median)*(nrow(CV_results)-1)/(nrow(CV_results)-2)
+Rsquared_upper_adj
+Rsquared_median_adj
+
 # check how many observations fall outside 95% confidence interval overall:
 summary(abs(BearMove$climb)>exp(predict(Model_upperclimb,BearMove)))
 3619/(3619+67650)
 
-# plot median and upper 95% bound
-plot(climb~dtime,BearMove,xlim=c(0,144),ylim=c(-750,750),pch=20, cex=0.5, col="grey70",main="Bear climb",xlab="Hours since last observation", ylab="Altitude change (metres)")
-Nobs <- aggregate(climb~round(log(dtime),1),BearMove,length)$climb
-aggregated_upper <- aggregate(climb~round(log(dtime),1),BearMove,function(x){quantile(x,0.9772)})[Nobs>100,]
-names(aggregated_upper) <- c("log_dtime","climb")
-aggregated_upper$dtime <- exp(aggregated_upper$log_dtime)
-lines(climb~dtime,aggregated_upper,lty=2,lwd=2)
-aggregated_upper$descend <- aggregate(climb~round(log(dtime),1),BearMove,function(x){quantile(x,1-0.9772)})[Nobs>100,]$climb
-aggregated_upper$upper50 <- aggregate(climb~round(log(dtime),1),BearMove,function(x){quantile(x,sqrt(sqrt(.5)))})[Nobs>100,]$climb
-aggregated_upper$lower50 <- aggregate(climb~round(log(dtime),1),BearMove,function(x){quantile(x,1-sqrt(sqrt(.5)))})[Nobs>100,]$climb
-lines(descend~dtime,aggregated_upper,lty=2,lwd=2)
-lines(lower50~dtime,aggregated_upper,lwd=2)
-lines(upper50~dtime,aggregated_upper,lwd=2)
+# plot with absolute numbers
+plot(climb~dtime,BearMove,xlim=c(0,72),ylim=c(-750,750),pch=20, cex=0.5, col="grey70",main="Bear climb",xlab="Hours since last observation", ylab="Altitude change (metres)")
+lines(exp(sumstat$log_dtime),exp(sumstat$log_climb),lty=2,lwd=2)
+lines(exp(sumstat$log_dtime),-exp(sumstat$log_climb),lty=2,lwd=2)
+lines(exp(sumstat$log_dtime),exp(sumstat$median_climb),lwd=2)
+lines(exp(sumstat$log_dtime),-exp(sumstat$median_climb),lwd=2)
 #lines(aggregate(dist_km~round(dtime),BearMove,function(x){quantile(x,0.05)}),lty=2, lwd=2)
-legend("topleft",legend=c("raw data","upper 95% bound per day","predicted (male)","predicted (female)"),cex=0.8,
-       lty=c(NA,2,1,1),lwd=c(NA,2,1,1),pch=c(20,NA,NA,NA),col=c("grey70","black","blue","magenta"))
+legend("topleft",legend=c("raw data","50% bounds","95% bounds","predicted"),cex=0.8,
+       lty=c(NA,1,2,1),lwd=c(NA,2,2,2),pch=c(20,NA,NA,NA),col=c("grey70","black","black","blue"))
 days <- c(seq(0.01,0.99,by=0.01),1:150)
-climbF <- exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(days))
-lines(climbF~days,col="magenta")
-climbF <- exp(coef(Model_medianclimb)[1]+coef(Model_medianclimb)[2]*log(days))
-lines(climbF~days,col="magenta",lty=2)
-climbM <- exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(days)+coef(Model_upperclimb)[3])
-lines(climbM~days,col="blue")
-climbM <- exp(coef(Model_medianclimb)[1]+coef(Model_medianclimb)[2]*log(days)+coef(Model_medianclimb)[3])
-lines(climbM~days,col="blue",lty=2)
-climbF <- -exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(days))
-lines(climbF~days,col="magenta")
-climbF <- -exp(coef(Model_medianclimb)[1]+coef(Model_medianclimb)[2]*log(days))
-lines(climbF~days,col="magenta",lty=2)
-climbM <- -exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(days)+coef(Model_upperclimb)[3])
-lines(climbM~days,col="blue")
-climbM <- -exp(coef(Model_medianclimb)[1]+coef(Model_medianclimb)[2]*log(days)+coef(Model_medianclimb)[3])
-lines(climbM~days,col="blue",lty=2)
-
+climbM <- exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(days))
+lines(climbM~days,col="blue",lwd=2,lty=2)
+climbM <- exp(coef(Model_medianclimb)[1]+coef(Model_medianclimb)[2]*log(days))
+lines(climbM~days,col="blue",lwd=2)
+climbM <- -exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(days))
+lines(climbM~days,col="blue",lwd=2,lty=2)
+climbM <- -exp(coef(Model_medianclimb)[1]+coef(Model_medianclimb)[2]*log(days))
+lines(climbM~days,col="blue",lwd=2)
 
 hours <- seq(.001,24,by=0.01)
 dist_M2 <- exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(hours))
@@ -437,56 +610,6 @@ abline(h= exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(5)),lty=2)
 abline(v=1/60,lty=2)
 abline(h= exp(coef(Model_upperclimb)[1]+coef(Model_upperclimb)[2]*log(1/60)),lty=2)
 
-# try different model:
-BearMove$time_dist <- BearMove$dtime*BearMove$dist_km
-# plot median and upper 95% bound
-plot(dist_km~dtime,BearMove[BearMove$cluster==2,],xlim=c(0,144),ylim=c(0,15),pch=20, cex=0.5, col="grey70",main="Bear displacement",xlab="Hours since last observation", ylab="Distance from origin (km)")
-Nobs <- aggregate(dist_km~round(log(dtime),1),BearMove[BearMove$cluster==2,],length)$dist_km
-aggregated_median <- aggregate(dist_km~round(log(dtime/24),1),BearMove[BearMove$cluster==2,],function(x){quantile(x,sqrt(.5))})
-names(aggregated_median) <- c("log_dtime","dist_km")
-aggregated_median$dtime <- exp(aggregated_median$log_dtime)*24
-lines(dist_km~dtime,aggregated_median,lwd=2)
-aggregated_upper <- aggregate(dist_km~round(log(dtime/24),1),BearMove[BearMove$cluster==2,],function(x){quantile(x,0.9772)})
-names(aggregated_upper) <- c("log_dtime","dist_km")
-aggregated_upper$dtime <- exp(aggregated_upper$log_dtime)*24
-lines(dist_km~dtime,aggregated_upper,lty=2, lwd=2)
-#lines(aggregate(dist_km~round(dtime),BearMove,function(x){quantile(x,0.05)}),lty=2, lwd=2)
-legend("topleft",legend=c("raw data","median per day","upper 95% bound per day","predicted rational","predicted exponential"),cex=0.8,
-       lty=c(NA,1,2,1,2),lwd=c(NA,2,2,2,2),pch=c(20,NA,NA,NA,NA),col=c("grey70","black","black","blue","blue"))
-sumstat <- aggregate(dist_km~round(log(dtime),1),BearMove[BearMove$cluster==2,],function(x){quantile(x,0.9772)})
-sumstat$N <-  aggregate(log(dist_km)~round(log(dtime),1),BearMove[BearMove$cluster==2,],length)[,2]
-names(sumstat) <- c("log_dtime","dist","N")
-sumstat$dtime <- exp(sumstat$log_dtime)
-sumstat <- sumstat[sumstat$N>99,]
-sumstat$time_dist <- sumstat$dtime*sumstat$dist
-Model_uppermove2 <- lm(dist~time_dist+dtime+0,sumstat,weights = sumstat$N/sumstat$dist)
-sumstat <- aggregate(dist_km~round(log(dtime),1),BearMove[BearMove$cluster==2,],function(x){quantile(x,sqrt(0.5))})
-sumstat$N <-  aggregate(log(dist_km)~round(log(dtime),1),BearMove[BearMove$cluster==2,],length)[,2]
-names(sumstat) <- c("log_dtime","dist","N")
-sumstat$dtime <- exp(sumstat$log_dtime)
-sumstat <- sumstat[sumstat$N>99,]
-sumstat$time_dist <- sumstat$dtime*sumstat$dist
-Model_meanmove2 <- lm(dist~time_dist+dtime+0,sumstat,weights = sumstat$N/sumstat$dist)
-hours <- exp(seq(-8,5,by=0.1))
-b <- -1/coef(Model_uppermove2)[1]
-a <- coef(Model_uppermove2)[2]*b
-distance <- a*hours/(b+hours)
-lines(distance~hours,col="blue",lwd=2)
-b <- -1/coef(Model_meanmove2)[1]
-a <- coef(Model_meanmove2)[2]*b
-distance <- a*hours/(b+hours)
-lines(distance~hours,col="blue",lwd=2)
-distance <- exp(coef(Model_move2)[1]+coef(Model_move2)[2]*log(hours/24))
-lines(distance~hours,col="blue",lty=2,lwd=2)
-distanceM <- exp(coef(Model_uppermove)[1]+coef(Model_uppermove)[2]*log(hours/24)+coef(Model_uppermove)[3])
-lines(distanceM~hours,col="blue",lty=2,lwd=2)
-for(sim in 1:50) {
-  coefs <- summary(Model_uppermove2)$coef
-  b <- -1/rnorm(1,coefs[1,1],coefs[1,2])
-  a <- rnorm(1,coefs[2,1],coefs[2,2])*b
-  distance <- a*hours/(b+hours)
-  lines(distance~hours,col="magenta")
-}
 
 ###########################
 # Putting it all together #
@@ -549,19 +672,19 @@ for (DTIME in DT) {
       
       proj4string(upperrange_poly) <- CRS("+init=epsg:4326")
       proj4string(prefrange_poly) <- CRS("+init=epsg:4326")
-      b <- 1/0.04474
-      a <- 0.71022*b
-      alpha <- 2.0892
-      beta <- 0.4872
+      b <- 1/0.04773
+      a <- 0.60903*b
+      alpha <- 1.876
+      beta <- 0.504
       distanceU <- a*dtime/(b+dtime)
-      distanceU[dtime<24] <- exp(alpha+beta*log(dtime/24))[dtime<24] # use exponential dispersal model in first 24 hours
+      distanceU[dtime<10] <- exp(alpha+beta*log(dtime/24))[dtime<10] # use exponential dispersal model in first 24 hours
       distanceU <- distanceU*1000
-      b <- 1/0.05528
-      a <- 0.30425*b
-      alpha <- 1.08046
-      beta <- 0.48566
+      b <- 1/0.035137
+      a <- 0.14364*b
+      alpha <- 0.5909
+      beta <- 0.4945
       distanceM <- a*dtime/(b+dtime)
-      distanceM[dtime<24] <- exp(alpha+beta*log(dtime/24))[dtime<24] # use exponential dispersal model in first 24 hours
+      distanceM[dtime<10] <- exp(alpha+beta*log(dtime/24))[dtime<10] # use exponential dispersal model in first 24 hours
       distanceM <- distanceM*1000
       
       distance <- as.numeric(st_distance(Bear_subset,next_obs)[1,1])

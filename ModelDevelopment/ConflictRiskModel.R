@@ -243,27 +243,27 @@ confzone <- raster(filename)
 # Here is the layout of the experiments for clarity:
 
 # IN/OUT CORE ACTIVITY as temporal input
-###### Pseudeo-absence normal
+###### Pseudeo-absence 3km BUFFER
 ########### Unconstrained
 ########### 25 Node cap
-###### Pseudo-absence double points
+###### Pseudo-absence RANDOM
 ########### Unconstrained
 ########### 25 Node cap
-###### Pseudo-absence month sampling
-########### Unconstrained
-########### 25 Node cap
-
-# CONFLICT ZONE ACTIVITY as temporal input
-###### Pseudeo-absence normal
-########### Unconstrained
-########### 25 Node cap
-###### Pseudo-absence double points
-########### Unconstrained
-########### 25 Node cap
-###### Pseudo-absence month sampling
+###### Pseudo-absence 5km BUFFER
 ########### Unconstrained
 ########### 25 Node cap
 
+# Train with a Random forest, logistic regression and GBM
+
+# Then test with K-fold cross validation and spatial blocking CV
+
+# This is repeated, first with the alternative variable CONFLICT ZONE ACTIVITY
+# Then with the DISTANCE FROM CORE BEAR AREA REMOVED
+
+
+################################################################################
+# IN/OUT CORE ACTIVITY as temporal input
+################################################################################
 ################################################################################
 # IN/OUT CORE ACTIVITY as temporal input
 ################################################################################
@@ -293,16 +293,26 @@ for (month in c(1:12)){
   HWCpoints@data$bearloc[(HWCpoints@data$bearloc == 1) & (month(HWCpoints@data$datetime) == month)] <- 100- monthper$Percentage[month]
 }
 
+# Monthly activity for the conflict prone zones
+monthact <- read.csv("MonthlyActivityConflictZones_reshuff.csv", sep = ";")
+# Load in the raster mask for the conflict zones
+filename <- "dangerzone_242_243.tif"
+confzone <- raster(filename)
+
+# Since there are 0 values for this new method and we need 0 to also be outside
+# we introduce a binary raster of inside or outside the conflict zone.
+HWCpoints@data$bearloc2 <- raster::extract(confzone, HWCpoints)
+HWCpoints@data$bearact <- rep(NA, nrow(HWCpoints))
+for (month in c(1:12)){
+  HWCpoints@data$bearact[is.na(HWCpoints@data$bearloc2) & (month(HWCpoints@data$datetime) == month)] <- 0
+  HWCpoints@data$bearact[(HWCpoints@data$bearloc2 == 1) & (month(HWCpoints@data$datetime) == month)] <- monthact$Activity[month]
+}
+HWCpoints@data$bearloc2[is.na(HWCpoints@data$bearloc2)] <- 0
+
 
 ######################################
 ## Generate the pseudo-absence data ##
 ######################################
-
-# Before the data can be split into k folds, first the pseudo-absence data must 
-# be generated
-
-# There are a few ways we can generate pseudo-absence data and we will test 
-# different ways
 
 #-------------------------
 # Met1 - Original Method #
@@ -314,6 +324,7 @@ plot(SOPpoints[buffer,],add=TRUE,col="blue")
 plot(SOPpoints[is.na(over(SOPpoints,buffer)),],add=TRUE,col="red")
 # generate pseudo absence data:
 # Filters down to roughly the same number of points as the HWCpoints
+set.seed(20120)
 met1_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),200),])
 coordinates(met1_PABpoints) <- ~x+y
 proj4string(met1_PABpoints) <- proj4string(core_area)
@@ -325,31 +336,37 @@ met1_PABpoints <- spTransform(met1_PABpoints,CRS("+init=epsg:4326"))
 met1_PABpoints <- met1_PABpoints[is.na(over(met1_PABpoints,buffer)),] # select only points that fall outside buffer area
 # Add the month and then the corresponding percentages
 # CURRENTLY JUST RANDOM
+set.seed(20120)
 met1_PABpoints$month <- sample(c(1:12), nrow(met1_PABpoints), replace = TRUE)
 met1_PABpoints@data$bearloc <- raster::extract(core_area, met1_PABpoints)
 for (month in c(1:12)){
   met1_PABpoints@data$bearloc[is.na(met1_PABpoints@data$bearloc) & (met1_PABpoints@data$month == month)] <- monthper$Percentage[month]
   met1_PABpoints@data$bearloc[(met1_PABpoints@data$bearloc == 1) & (met1_PABpoints@data$month == month)] <- 100-monthper$Percentage[month]
 }
+# Now for the alternative variable, confzone
+met1_PABpoints@data$bearloc2 <- raster::extract(confzone, met1_PABpoints)
+met1_PABpoints@data$bearact <- rep(NA, nrow(met1_PABpoints))
+for (month in c(1:12)){
+  met1_PABpoints@data$bearact[is.na(met1_PABpoints@data$bearloc2) & (met1_PABpoints@data$month == month)] <- 0
+  met1_PABpoints@data$bearact[(met1_PABpoints@data$bearloc2 == 1) & (met1_PABpoints@data$month == month)] <- monthact$Activity[month]
+}
+met1_PABpoints@data$bearloc2[is.na(met1_PABpoints@data$bearloc2)] <- 0
+
 leaflet() %>% addTiles() %>%
   addMarkers(data=met1_PABpoints) %>% 
   addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters")
 
+
 #---------------------------------
-# Met2 - Double PA points method #
+# Met2 - Random generation #
 #---------------------------------
 
-# Still the original method but ensure that the number of PA points is roughly double
-# the number of presence points
+# No distance-based filtering process, randomly generated
 
-buffer <- buffer(HWCpoints, width=3000) # draw 3km buffer around HWC points
-plot(buffer)
-plot(SOPpoints,add=TRUE)
-plot(SOPpoints[buffer,],add=TRUE,col="blue")
-plot(SOPpoints[is.na(over(SOPpoints,buffer)),],add=TRUE,col="red")
 # generate pseudo absence data:
-# Using *3 means that the end result is roughly double the number of HWCpoints (bit more)
-met2_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),(nrow(HWCpoints)*3)),])
+# Filters down to roughly the same number of points as the HWCpoints
+set.seed(20120)
+met2_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),200),])
 coordinates(met2_PABpoints) <- ~x+y
 proj4string(met2_PABpoints) <- proj4string(core_area)
 # extract features:
@@ -357,34 +374,43 @@ met2_PABpoints$dist_to_core <- raster::extract(dist_to_core,met2_PABpoints)
 met2_PABpoints$edges_persqkm <- raster::extract(edges_persqkm,met2_PABpoints)
 met2_PABpoints$habitat_suitability <- raster::extract(HSM,met2_PABpoints)
 met2_PABpoints <- spTransform(met2_PABpoints,CRS("+init=epsg:4326"))
-met2_PABpoints <- met2_PABpoints[is.na(over(met2_PABpoints,buffer)),] # select only points that fall outside buffer area
 # Add the month and then the corresponding percentages
 # CURRENTLY JUST RANDOM
+set.seed(20120)
 met2_PABpoints$month <- sample(c(1:12), nrow(met2_PABpoints), replace = TRUE)
 met2_PABpoints@data$bearloc <- raster::extract(core_area, met2_PABpoints)
 for (month in c(1:12)){
   met2_PABpoints@data$bearloc[is.na(met2_PABpoints@data$bearloc) & (met2_PABpoints@data$month == month)] <- monthper$Percentage[month]
   met2_PABpoints@data$bearloc[(met2_PABpoints@data$bearloc == 1) & (met2_PABpoints@data$month == month)] <- 100-monthper$Percentage[month]
 }
+# Now for the alternative variable, confzone
+met2_PABpoints@data$bearloc2 <- raster::extract(confzone, met2_PABpoints)
+met2_PABpoints@data$bearact <- rep(NA, nrow(met2_PABpoints))
+for (month in c(1:12)){
+  met2_PABpoints@data$bearact[is.na(met2_PABpoints@data$bearloc2) & (met2_PABpoints@data$month == month)] <- 0
+  met2_PABpoints@data$bearact[(met2_PABpoints@data$bearloc2 == 1) & (met2_PABpoints@data$month == month)] <- monthact$Activity[month]
+}
+met2_PABpoints@data$bearloc2[is.na(met2_PABpoints@data$bearloc2)] <- 0
+
+
+
 leaflet() %>% addTiles() %>%
   addMarkers(data=met2_PABpoints) %>% 
   addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters")
-# Check gives 374 points (roughly equivalent to double HWCpoints 328)
-nrow(met2_PABpoints)
 
 #----------------------------
-# Met3 - Temporal Buffering #
+# Met3 - Increase the buffer
 #----------------------------
-# Original method but this time the month value for the PA data is taken as
-# an inverse probability distribution to the presence data (months when there are
-# not many HBC events are then more likely to be sampled for PA data)
+# Only difference is that the buffer is increased to 5km from 3km
 
-buffer <- buffer(HWCpoints, width=3000) # draw 3km buffer around HWC points
+buffer <- buffer(HWCpoints, width=5000) # draw 5km buffer around HWC points
 plot(buffer)
 plot(SOPpoints,add=TRUE)
 plot(SOPpoints[buffer,],add=TRUE,col="blue")
 plot(SOPpoints[is.na(over(SOPpoints,buffer)),],add=TRUE,col="red")
 # generate pseudo absence data:
+# Filters down to roughly the same number of points as the HWCpoints
+set.seed(20120)
 met3_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),200),])
 coordinates(met3_PABpoints) <- ~x+y
 proj4string(met3_PABpoints) <- proj4string(core_area)
@@ -395,30 +421,56 @@ met3_PABpoints$habitat_suitability <- raster::extract(HSM,met3_PABpoints)
 met3_PABpoints <- spTransform(met3_PABpoints,CRS("+init=epsg:4326"))
 met3_PABpoints <- met3_PABpoints[is.na(over(met3_PABpoints,buffer)),] # select only points that fall outside buffer area
 # Add the month and then the corresponding percentages
-# Create the probability for each month of conflict & inverse this for the PA points
-events <- nrow(HWCpoints)
-Pmonths <- c(nrow(HWCpoints[month(HWCpoints@data$datetime) == 1, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 2, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 3, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 4, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 5, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 6, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 7, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 8, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 9, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 10, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 11, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 12, ])/events)
-# January is a 0 so add a small value (0.0001) to all
-Pmonths <- Pmonths + 0.0001
-inverse_month <- 1-Pmonths
-# Normalise to produce a probability distribution
-inverse_month <- inverse_month/sum(inverse_month)
-# Now assign the months
-met3_PABpoints$month <- sample(c(1:12), nrow(met3_PABpoints), replace = TRUE, prob = inverse_month)
+# CURRENTLY JUST RANDOM
+set.seed(20120)
+met3_PABpoints$month <- sample(c(1:12), nrow(met3_PABpoints), replace = TRUE)
 met3_PABpoints@data$bearloc <- raster::extract(core_area, met3_PABpoints)
 for (month in c(1:12)){
   met3_PABpoints@data$bearloc[is.na(met3_PABpoints@data$bearloc) & (met3_PABpoints@data$month == month)] <- monthper$Percentage[month]
   met3_PABpoints@data$bearloc[(met3_PABpoints@data$bearloc == 1) & (met3_PABpoints@data$month == month)] <- 100-monthper$Percentage[month]
 }
+# Now for the alternative variable, confzone
+met3_PABpoints@data$bearloc2 <- raster::extract(confzone, met3_PABpoints)
+met3_PABpoints@data$bearact <- rep(NA, nrow(met3_PABpoints))
+for (month in c(1:12)){
+  met3_PABpoints@data$bearact[is.na(met3_PABpoints@data$bearloc2) & (met3_PABpoints@data$month == month)] <- 0
+  met3_PABpoints@data$bearact[(met3_PABpoints@data$bearloc2 == 1) & (met3_PABpoints@data$month == month)] <- monthact$Activity[month]
+}
+met3_PABpoints@data$bearloc2[is.na(met3_PABpoints@data$bearloc2)] <- 0
+
 leaflet() %>% addTiles() %>%
   addMarkers(data=met3_PABpoints) %>% 
   addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters")
 
+
+# Check PA distribution from core for ablation
+
+boxplot(HWCpoints$dist_to_core, met2_PABpoints$dist_to_core, met1_PABpoints$dist_to_core, 
+        met3_PABpoints$dist_to_core, names = c("Presence", "Random PA", "3km PA", "5km PA"), 
+        ylab = "Distance to core area (m)", ylab = "Dataset")
+
+# Shows that the PA points are roughly equivalent (5km has fewer on the lower end)
+
+# Show also in density plot
+plot_df <- data.frame(Distance = c(HWCpoints$dist_to_core, met2_PABpoints$dist_to_core, met1_PABpoints$dist_to_core, 
+                                   met3_PABpoints$dist_to_core),
+                      Dataset = c(rep("Presence", length(HWCpoints$dist_to_core)),
+                                  rep("Random PA", length(met2_PABpoints$dist_to_core)),
+                                  rep("3km PA", length(met1_PABpoints$dist_to_core)),
+                                  rep("5km PA", length(met3_PABpoints$dist_to_core))))
+# There is suffient overlap - not complete spatial separation
+
+# ggplots for sharing
+library(ggplot2)
+ggplot(plot_df, aes(Dataset, Distance)) + 
+  geom_boxplot() +
+  theme_bw() +
+  ylab("Distance to core bear area (m)")
+
+ggplot(plot_df,
+       aes(x = Distance,
+           colour = Dataset)) +
+  geom_density(size = 1)
 
 ##################################
 ## Split into test and training ##
@@ -434,7 +486,7 @@ k <- 5
 
 # Initialize fold column
 HWCpoints@data$fold <- NA
-
+set.seed(20120)
 for(ds in unique(HWCpoints@data$Source)) {
   idx <- which(HWCpoints@data$Source == ds)
   HWCpoints@data$fold[idx] <- sample(
@@ -445,8 +497,11 @@ for(ds in unique(HWCpoints@data$Source)) {
 table(HWCpoints@data$fold, HWCpoints@data$Source)
 
 # Now for the PAB
+set.seed(20120)
 met1_PABpoints@data$fold <- sample(rep(1:k, length.out = nrow(met1_PABpoints)))
+set.seed(20120)
 met2_PABpoints@data$fold <- sample(rep(1:k, length.out = nrow(met2_PABpoints)))
+set.seed(20120)
 met3_PABpoints@data$fold <- sample(rep(1:k, length.out = nrow(met3_PABpoints)))
 
 # Now combine the datasets for each of the cross validations
@@ -464,28 +519,34 @@ library(pROC)
 
 # Create a dataframe to store the results
 # M1 stands for the PAB method and _1 stands for the hyperparameter methods
-results <- data.frame("M1_1" = rep(NA, 5), "M1_2" = rep(NA, 5), 
-                      "M2_1" = rep(NA, 5), "M2_2" = rep(NA, 5),
-                      "M3_1" = rep(NA, 5), "M3_2" = rep(NA, 5))
+results <- data.frame("RF1_1" = rep(NA, 5), "RF1_2" = rep(NA, 5), "LR1" = rep(NA, 5),"GBM1" = rep(NA, 5),
+                      "RF2_1" = rep(NA, 5), "RF2_2" = rep(NA, 5), "LR2" = rep(NA, 5),"GBM2" = rep(NA, 5),
+                      "RF3_1" = rep(NA, 5), "RF3_2" = rep(NA, 5), "LR3" = rep(NA, 5),"GBM3" = rep(NA, 5))
 rownames(results) <- c("K1", "K2", "K3", "K4", "K5")
 AUC <- results
 TSS <- results
 AUCsd <- results
 TSSsd <- results
+threshold <- results
 
 library(randomForest)
+library(gbm)
 
 all_observationsM1_2 <- c()
 all_predictionsM1_2 <- c() 
 
 # Start the loops for the analysis
-for (met in c(1:3)){
-  spdf <- get(paste0("POINTS", met))
-  for (kfold in c(1:k)){
+
+for (kfold in c(1:k)){
+  for (met in c(1:3)){
+    spdf <- get(paste0("POINTS", met))
     # Define the training and test datasets
     # Test is fold k
     test <- spdf[spdf@data$fold == kfold,]
     training <- spdf[spdf@data$fold != kfold,]
+    
+    ## FIRST THE RF MODEL ##
+    
     # Gen the models
     training <- training[apply(training@data,1,function(x){!any(is.na(x))}),] # remove NA's
     model1 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"])
@@ -513,37 +574,302 @@ for (met in c(1:3)){
     auc_value2 <- auc(roc_curve2)
     
     # Record the AUC
-    AUC[kfold,((met*2)-1)] <- auc_value1
-    AUC[kfold,met*2] <- auc_value2
+    AUC[kfold,((met*4)-3)] <- auc_value1
+    AUC[kfold,((met*4)-2)] <- auc_value2
     
     # TSS (True Skill Statistic)
     # Balances sensitivity and specificity, providing a metric that is independent of prevalence
     # 1 indicates perfect agreement
     # TSS=(Sensitivity)+(Specificity)−1
     
-    # Find the optimal threshold model1 first
     optimal_threshold <- coords(roc_curve1, "best", ret = c("threshold", "sensitivity", "specificity"))
     # Extract sensitivity and specificity at the optimal threshold
-    sensitivity <- optimal_threshold["sensitivity"]
-    specificity <- optimal_threshold["specificity"]
+    sensitivity <- optimal_threshold$sensitivity[1]
+    specificity <- optimal_threshold$specificity[1]
     # Calculate TSS
     tss1 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    threshold[kfold,((met*4)-3)] <- optimal_threshold$threshold[1]
     
     # Same for model2
     optimal_threshold2 <- coords(roc_curve2, "best", ret = c("threshold", "sensitivity", "specificity"))
-    sensitivity <- optimal_threshold2["sensitivity"]
-    specificity <- optimal_threshold2["specificity"]
+    sensitivity <- optimal_threshold2$sensitivity[1]
+    specificity <- optimal_threshold2$specificity[1]
     tss2 <- (sensitivity + specificity) - 1
-    
+    # Save threshold as well
+    threshold[kfold,((met*4)-2)] <- optimal_threshold2$threshold[1]
     
     # Assign to the data frame
-    TSS[kfold,((met*2)-1)] <- tss1
-    TSS[kfold,met*2] <- tss2
+    TSS[kfold,((met*4)-3)] <- tss1
+    TSS[kfold,((met*4)-2)] <- tss2
+    
+    ## THEN LOGISTIC REGRESSION ##
+    # First gen the model
+    LR <- glm(
+      target ~ .,data=training@data[, !names(training@data) %in% "fold"],
+      family = binomial(link = "logit")
+    )
+    # Then predict based on the model
+    predictions <- predict(LR,newdata=test,type="response")
+    # Calculate the AUC
+    roc_ob <- roc(test$target, predictions)
+    aucLR <- auc(roc_ob)
+    # Now TSS
+    opt_threshold <- coords(roc_ob, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_threshold$sensitivity[1]
+    specificity <- opt_threshold$specificity[1]
+    # Calculate TSS
+    tssLR <- (sensitivity + specificity) - 1
+    # Save stats
+    AUC[kfold,((met*4)-1)] <- aucLR
+    TSS[kfold,((met*4)-1)] <- tssLR
+    threshold[kfold,((met*4)-1)] <- opt_threshold$threshold[1]
+    
+    ## THEN GBM (GRADIENT BOOSTING)
+    training@data$target <- as.numeric(training@data$target)-1
+    gbm <- gbm(target ~ .,data=training@data[, !names(training@data) %in% "fold"], distribution = "bernoulli", n.trees = 500, interaction.depth = 3,
+               shrinkage = 0.05, bag.fraction = 0.8)
+    # Predict
+    gbm_pred <- predict(gbm,newdata = test, n.trees = 500, type = "response")
+    # Calculate the AUC
+    roc_gbm <- roc(test$target, gbm_pred)
+    aucGBM <- auc(roc_gbm)
+    # Now TSS
+    opt_thresh <- coords(roc_gbm, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_thresh$sensitivity[1]
+    specificity <- opt_thresh$specificity[1]
+    # Calculate TSS
+    tssGBM <- (sensitivity + specificity) - 1
+    # Save stats
+    AUC[kfold,(met*4)] <- aucGBM
+    TSS[kfold,(met*4)] <- tssGBM
+    threshold[kfold,(met*4)] <- opt_thresh$threshold[1]
     
   }
 }
 
 ################################################################################
+
+##############################
+# Spatial splitting of k-folds
+###################
+library(sf)
+
+POINTS1_sf <- st_as_sf(POINTS1)
+POINTS2_sf <- st_as_sf(POINTS2)
+POINTS3_sf <- st_as_sf(POINTS3)
+
+# They also need to be transformed for cv_blocks
+POINTS1_sf_UTM <- st_transform(POINTS1_sf, crs = 32633)
+POINTS2_sf_UTM <- st_transform(POINTS2_sf, crs = 32633)
+POINTS3_sf_UTM <- st_transform(POINTS3_sf, crs = 32633)
+
+library(blockCV) 
+
+# Determine the value for theRange
+library(spdep)
+coords <- st_coordinates(POINTS1_sf_UTM)
+values <- as.numeric(POINTS1_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks1 <- spatialBlock(
+  speciesData = POINTS1_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks1$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS1 <- POINTS1
+for (i in seq_along(cv_blocks1$folds)) {
+  test_idx <- c(cv_blocks1$folds[[i]][[2]])
+  sp_POINTS1$fold[test_idx] <- i
+}
+
+#Now do for the other two
+# Method 2
+coords <- st_coordinates(POINTS2_sf_UTM)
+values <- as.numeric(POINTS2_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks2 <- spatialBlock(
+  speciesData = POINTS2_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks2$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS2 <- POINTS2
+for (i in seq_along(cv_blocks2$folds)) {
+  test_idx <- c(cv_blocks2$folds[[i]][[2]])
+  sp_POINTS2$fold[test_idx] <- i
+}
+
+# Method 3
+coords <- st_coordinates(POINTS3_sf_UTM)
+values <- as.numeric(POINTS3_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks3 <- spatialBlock(
+  speciesData = POINTS3_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks3$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS3 <- POINTS3
+for (i in seq_along(cv_blocks3$folds)) {
+  test_idx <- c(cv_blocks3$folds[[i]][[2]])
+  sp_POINTS3$fold[test_idx] <- i
+}
+
+
+spresults <- data.frame("RF1_1" = rep(NA, 3), "RF1_2" = rep(NA, 3), "LR1" = rep(NA, 3),"GBM1" = rep(NA, 3),
+                        "RF2_1" = rep(NA, 3), "RF2_2" = rep(NA, 3), "LR2" = rep(NA, 3),"GBM2" = rep(NA, 3),
+                        "RF3_1" = rep(NA, 3), "RF3_2" = rep(NA, 3), "LR3" = rep(NA, 3),"GBM3" = rep(NA, 3))
+rownames(spresults) <- c("K1", "K2", "K3")
+spAUC <- spresults
+spTSS <- spresults
+spthreshold <- spresults
+
+k <- 3
+
+for (kfold in c(1:k)){
+  for (met in c(1:3)){
+    spdf <- get(paste0("sp_POINTS", met))
+    # Define the training and test datasets
+    # Test is fold k
+    test <- spdf[spdf@data$fold == kfold,]
+    training <- spdf[spdf@data$fold != kfold,]
+    
+    ## FIRST THE RF MODEL ##
+    
+    # Gen the models
+    training <- training[apply(training@data,1,function(x){!any(is.na(x))}),] # remove NA's
+    model1 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"])
+    model2 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"], maxnodes=25)
+    
+    # Now predict against the test data and record key variables
+    predict1 <- predict(model1, test, type = "prob")
+    predict2 <- predict(model2, test, type = "prob")
+    
+    # For creating the pooled ROC for the end paper
+    if(met == 1){
+      all_observationsM1_2 <- c(all_observationsM1_2, test$target)
+      all_predictionsM1_2 <- c(all_predictionsM1_2, predict2[,2])
+    }
+    # Record all the metrics for measuring the predictive capacity of the model
+    
+    # AUC (Area under ROC Curve)
+    # Measures the ability of the model to discriminate between presence and absence points
+    # 1 indicates perfect discrimination
+    actual <- as.numeric(test@data$target)-1
+    roc_curve1 <- roc(response = actual, predictor = as.numeric(predict1[,"TRUE"]))
+    roc_curve2 <- roc(response = actual, predictor = as.numeric(predict2[,"TRUE"]))
+    # Calculate AUC
+    auc_value1 <- auc(roc_curve1)
+    auc_value2 <- auc(roc_curve2)
+    
+    # Record the AUC
+    spAUC[kfold,((met*4)-3)] <- auc_value1
+    spAUC[kfold,((met*4)-2)] <- auc_value2
+    
+    # TSS (True Skill Statistic)
+    # Balances sensitivity and specificity, providing a metric that is independent of prevalence
+    # 1 indicates perfect agreement
+    # TSS=(Sensitivity)+(Specificity)−1
+    
+    optimal_threshold <- coords(roc_curve1, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- optimal_threshold$sensitivity[1]
+    specificity <- optimal_threshold$specificity[1]
+    # Calculate TSS
+    tss1 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    spthreshold[kfold,((met*4)-3)] <- optimal_threshold$threshold[1]
+    
+    # Same for model2
+    optimal_threshold2 <- coords(roc_curve2, "best", ret = c("threshold", "sensitivity", "specificity"))
+    sensitivity <- optimal_threshold2$sensitivity[1]
+    specificity <- optimal_threshold2$specificity[1]
+    tss2 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    spthreshold[kfold,((met*4)-2)] <- optimal_threshold2$threshold[1]
+    
+    # Assign to the data frame
+    spTSS[kfold,((met*4)-3)] <- tss1
+    spTSS[kfold,((met*4)-2)] <- tss2
+    
+    ## THEN LOGISTIC REGRESSION ##
+    # First gen the model
+    LR <- glm(
+      target ~ .,data=training@data[, !names(training@data) %in% "fold"],
+      family = binomial(link = "logit")
+    )
+    # Then predict based on the model
+    predictions <- predict(LR,newdata=test,type="response")
+    # Calculate the AUC
+    roc_ob <- roc(test$target, predictions)
+    aucLR <- auc(roc_ob)
+    # Now TSS
+    opt_threshold <- coords(roc_ob, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_threshold$sensitivity[1]
+    specificity <- opt_threshold$specificity[1]
+    # Calculate TSS
+    tssLR <- (sensitivity + specificity) - 1
+    # Save stats
+    spAUC[kfold,((met*4)-1)] <- aucLR
+    spTSS[kfold,((met*4)-1)] <- tssLR
+    spthreshold[kfold,((met*4)-1)] <- opt_threshold$threshold[1]
+    
+    ## THEN GBM (GRADIENT BOOSTING)
+    training@data$target <- as.numeric(training@data$target)-1
+    gbm <- gbm(target ~ .,data=training@data[, !names(training@data) %in% "fold"], distribution = "bernoulli", n.trees = 500, interaction.depth = 3,
+               shrinkage = 0.05, bag.fraction = 0.8)
+    # Predict
+    gbm_pred <- predict(gbm,newdata = test, n.trees = 500, type = "response")
+    # Calculate the AUC
+    roc_gbm <- roc(test$target, gbm_pred)
+    aucGBM <- auc(roc_gbm)
+    # Now TSS
+    opt_thresh <- coords(roc_gbm, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_thresh$sensitivity[1]
+    specificity <- opt_thresh$specificity[1]
+    # Calculate TSS
+    tssGBM <- (sensitivity + specificity) - 1
+    # Save stats
+    spAUC[kfold,(met*4)] <- aucGBM
+    spTSS[kfold,(met*4)] <- tssGBM
+    spthreshold[kfold,(met*4)] <- opt_thresh$threshold[1]
+    
+  }
+}
+
+
 #-----------------------
 ##### Final Model ######
 #-----------------------
@@ -554,13 +880,16 @@ for (met in c(1:3)){
 rocpool <- roc(all_observationsM1_2, all_predictionsM1_2)
 
 plot(rocpool)
-auc(rocpool) #practically the same as averaged over the 5 folds
+auc(rocpool) #practically the same as averaged over the folds
 
-# create variable importance plots
+#png("Figure4.png", units = "px", width = 3543, height = 3543, res = 300)
+#plot(rocpool)
+#dev.off()
+
 total <- POINTS1[apply(POINTS1@data,1,function(x){!any(is.na(x))}),] # remove NA's
 
 # Check the mtry is good
-tuneRF(total@data[,1:4], total$target, stepFactor = 3)
+tuneRF(total@data[, !names(total@data) %in% "fold"], total$target, stepFactor = 3)
 # Gen the model
 model <- randomForest(target~.,data=total@data[, !names(total@data) %in% "fold"], maxnodes=25)
 
@@ -568,29 +897,13 @@ model <- randomForest(target~.,data=total@data[, !names(total@data) %in% "fold"]
 importance(model)
 varImpPlot(model)
 
-summary(model)
 model
-#OOB estimate of error rate 9.88%
-# Number of trees: 500
-# mtry: 2
 
 #saveRDS(model, "dynamic_conflict_model.rds")
 
 #############################################
 ## Generate map results ##
 #############################################
-
-for (m in 1:12){
-  monthly <- getValues(core_area)
-  monthly[is.na(monthly)] <- monthper$Percentage[m]
-  monthly[monthly==1] <- 100-monthper$Percentage[m]
-  name <- paste0("month", m)
-  assign(name, monthly)
-}
-
-predmonthDF <- data.frame("Jan" = month1, "Feb" = month2, "Mar" = month3, "Apr" = month4, "May" = month5, "Jun" = month6,
-                          "Jul" = month7, "Aug" = month8, "Sep" = month9, "Oct" = month10, "Nov" = month11, "Dec" = month12)
-# write.csv(predmonthDF, "month_prediction.csv")
 
 cols <- colorRampPalette(c(HotspotColor))(50)
 
@@ -618,6 +931,7 @@ leaflet() %>% addTiles() %>%
                  opacity = .7)
 plot(classification, col = cols, zlim = c(0,1))
 
+# Rerun for different months (change lines 938-939)
 SepresponseDF <- JanresponseDF[, -(5:6)]
 Sepper <- getValues(core_area)
 # Change bracket number to generate different month
@@ -632,207 +946,16 @@ plot(classification, col = cols, zlim = c(0,1))
 
 #writeRaster(classification, "Feb.tif", format = "GTIFF", overwrite = TRUE)
 
+
+
+
+
+
+
 ################################################################################
 ## CONFLICT ZONE ACTIVITY as temporal input
 ################################################################################
-# Just in case reset
-HWCpoints <- clip
-set.seed(20120)
-######################
-## Assign Variables ##
-######################
-
-# Habitat Suitability
-HWCpoints$habitat_suitability <- raster::extract(HSM,HWCpoints)
-
-# Edges per square km
-HWCpoints$edges_persqkm <- raster::extract(edges_persqkm,HWCpoints)
-hist(edges_persqkm[edges_persqkm>0],xlim=c(0,0.5))
-hist(HWCpoints$edges_persqkm,xlim=c(0,0.5), breaks=10)
-
-# Distance to the Core
-HWCpoints$dist_to_core <- raster::extract(dist_to_core,HWCpoints)
-hist(dist_to_core, xlim=c(0,60000))
-hist(HWCpoints$dist_to_core, xlim=c(0,60000),breaks=15)
-
-# Monthly activity within and outside the core
-monthact <- read.csv("MonthlyActivityConflictZones_reshuff.csv", sep = ";")
-# Load in the raster mask for the conflict zones
-filename <- "dangerzone_242_243.tif"
-confzone <- raster(filename)
-
-# Since there are 0 values for this new method and we need 0 to also be outside
-# we introduce a binary raster of inside or outside the conflict zone.
-HWCpoints@data$bearloc <- raster::extract(confzone, HWCpoints)
-HWCpoints@data$bearact <- rep(NA, nrow(HWCpoints))
-for (month in c(1:12)){
-  HWCpoints@data$bearact[is.na(HWCpoints@data$bearloc) & (month(HWCpoints@data$datetime) == month)] <- 0
-  HWCpoints@data$bearact[(HWCpoints@data$bearloc == 1) & (month(HWCpoints@data$datetime) == month)] <- monthact$Activity[month]
-}
-HWCpoints@data$bearloc[is.na(HWCpoints@data$bearloc)] <- 0
-
-
-######################################
-## Generate the pseudo-absence data ##
-######################################
-
-# Before the data can be split into k folds, first the pseudo-absence data must 
-# be generated
-
-# There are a few ways we can generate pseudo-absence data and we will test 
-# different ways
-
-#-------------------------
-# Met1 - Original Method #
-#-------------------------
-buffer <- buffer(HWCpoints, width=3000) # draw 3km buffer around HWC points
-plot(buffer)
-plot(SOPpoints,add=TRUE)
-plot(SOPpoints[buffer,],add=TRUE,col="blue")
-plot(SOPpoints[is.na(over(SOPpoints,buffer)),],add=TRUE,col="red")
-# generate pseudo absence data:
-# Filters down to roughly the same number of points as the HWCpoints
-met1_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),200),])
-coordinates(met1_PABpoints) <- ~x+y
-proj4string(met1_PABpoints) <- proj4string(core_area)
-# extract features:
-met1_PABpoints$dist_to_core <- raster::extract(dist_to_core,met1_PABpoints)
-met1_PABpoints$edges_persqkm <- raster::extract(edges_persqkm,met1_PABpoints)
-met1_PABpoints$habitat_suitability <- raster::extract(HSM,met1_PABpoints)
-met1_PABpoints <- spTransform(met1_PABpoints,CRS("+init=epsg:4326"))
-met1_PABpoints <- met1_PABpoints[is.na(over(met1_PABpoints,buffer)),] # select only points that fall outside buffer area
-# Add the month and then the corresponding percentages
-# CURRENTLY JUST RANDOM
-met1_PABpoints$month <- sample(c(1:12), nrow(met1_PABpoints), replace = TRUE)
-met1_PABpoints@data$bearloc <- raster::extract(confzone, met1_PABpoints)
-met1_PABpoints@data$bearact <- rep(NA, nrow(met1_PABpoints))
-for (month in c(1:12)){
-  met1_PABpoints@data$bearact[is.na(met1_PABpoints@data$bearloc) & (met1_PABpoints@data$month == month)] <- 0
-  met1_PABpoints@data$bearact[(met1_PABpoints@data$bearloc == 1) & (met1_PABpoints@data$month == month)] <- monthact$Activity[month]
-}
-met1_PABpoints@data$bearloc[is.na(met1_PABpoints@data$bearloc)] <- 0
-leaflet() %>% addTiles() %>%
-  addMarkers(data=met1_PABpoints) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters")
-
-#---------------------------------
-# Met2 - Double PA points method #
-#---------------------------------
-
-# Still the original method but ensure that the number of PA points is roughly double
-# the number of presence points
-
-buffer <- buffer(HWCpoints, width=3000) # draw 3km buffer around HWC points
-plot(buffer)
-plot(SOPpoints,add=TRUE)
-plot(SOPpoints[buffer,],add=TRUE,col="blue")
-plot(SOPpoints[is.na(over(SOPpoints,buffer)),],add=TRUE,col="red")
-# generate pseudo absence data:
-# Using *3 means that the end result is roughly double the number of HWCpoints (bit more)
-met2_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),(nrow(HWCpoints)*3)),])
-coordinates(met2_PABpoints) <- ~x+y
-proj4string(met2_PABpoints) <- proj4string(core_area)
-# extract features:
-met2_PABpoints$dist_to_core <- raster::extract(dist_to_core,met2_PABpoints)
-met2_PABpoints$edges_persqkm <- raster::extract(edges_persqkm,met2_PABpoints)
-met2_PABpoints$habitat_suitability <- raster::extract(HSM,met2_PABpoints)
-met2_PABpoints <- spTransform(met2_PABpoints,CRS("+init=epsg:4326"))
-met2_PABpoints <- met2_PABpoints[is.na(over(met2_PABpoints,buffer)),] # select only points that fall outside buffer area
-# Add the month and then the corresponding percentages
-# CURRENTLY JUST RANDOM
-met2_PABpoints$month <- sample(c(1:12), nrow(met2_PABpoints), replace = TRUE)
-met2_PABpoints@data$bearloc <- raster::extract(confzone, met2_PABpoints)
-met2_PABpoints@data$bearact <- rep(NA, nrow(met2_PABpoints))
-for (month in c(1:12)){
-  met2_PABpoints@data$bearact[is.na(met2_PABpoints@data$bearloc) & (met2_PABpoints@data$month == month)] <- 0
-  met2_PABpoints@data$bearact[(met2_PABpoints@data$bearloc == 1) & (met2_PABpoints@data$month == month)] <- monthact$Activity[month]
-}
-met2_PABpoints@data$bearloc[is.na(met2_PABpoints@data$bearloc)] <- 0
-leaflet() %>% addTiles() %>%
-  addMarkers(data=met2_PABpoints) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters")
-# Check gives 374 points (roughly equivalent to double HWCpoints 328)
-nrow(met2_PABpoints)
-
-#----------------------------
-# Met3 - Temporal Buffering #
-#----------------------------
-# Original method but this time the month value for the PA data is taken as
-# an inverse probability distribution to the presence data (months when there are
-# not many HBC events are then more likely to be sampled for PA data)
-
-buffer <- buffer(HWCpoints, width=3000) # draw 3km buffer around HWC points
-plot(buffer)
-plot(SOPpoints,add=TRUE)
-plot(SOPpoints[buffer,],add=TRUE,col="blue")
-plot(SOPpoints[is.na(over(SOPpoints,buffer)),],add=TRUE,col="red")
-# generate pseudo absence data:
-met3_PABpoints <- data.frame(coordinates(core_area)[sample(1:ncell(core_area),200),])
-coordinates(met3_PABpoints) <- ~x+y
-proj4string(met3_PABpoints) <- proj4string(core_area)
-# extract features:
-met3_PABpoints$dist_to_core <- raster::extract(dist_to_core,met3_PABpoints)
-met3_PABpoints$edges_persqkm <- raster::extract(edges_persqkm,met3_PABpoints)
-met3_PABpoints$habitat_suitability <- raster::extract(HSM,met3_PABpoints)
-met3_PABpoints <- spTransform(met3_PABpoints,CRS("+init=epsg:4326"))
-met3_PABpoints <- met3_PABpoints[is.na(over(met3_PABpoints,buffer)),] # select only points that fall outside buffer area
-# Add the month and then the corresponding percentages
-# Create the probability for each month of conflict & inverse this for the PA points
-events <- nrow(HWCpoints)
-Pmonths <- c(nrow(HWCpoints[month(HWCpoints@data$datetime) == 1, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 2, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 3, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 4, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 5, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 6, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 7, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 8, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 9, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 10, ])/events,
-             nrow(HWCpoints[month(HWCpoints@data$datetime) == 11, ])/events, nrow(HWCpoints[month(HWCpoints@data$datetime) == 12, ])/events)
-# January is a 0 so add a small value (0.0001) to all
-Pmonths <- Pmonths + 0.0001
-inverse_month <- 1-Pmonths
-# Normalise to produce a probability distribution
-inverse_month <- inverse_month/sum(inverse_month)
-# Now assign the months
-met3_PABpoints$month <- sample(c(1:12), nrow(met3_PABpoints), replace = TRUE, prob = inverse_month)
-met3_PABpoints@data$bearloc <- raster::extract(confzone, met3_PABpoints)
-met3_PABpoints@data$bearact <- rep(NA, nrow(met3_PABpoints))
-for (month in c(1:12)){
-  met3_PABpoints@data$bearact[is.na(met3_PABpoints@data$bearloc) & (met3_PABpoints@data$month == month)] <- 0
-  met3_PABpoints@data$bearact[(met3_PABpoints@data$bearloc == 1) & (met3_PABpoints@data$month == month)] <- monthact$Activity[month]
-}
-met3_PABpoints@data$bearloc[is.na(met3_PABpoints@data$bearloc)] <- 0
-leaflet() %>% addTiles() %>%
-  addMarkers(data=met3_PABpoints) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters")
-
-
-##################################
-## Split into test and training ##
-##################################
-
-met1_PABpoints@data$target <- FALSE
-met2_PABpoints@data$target <- FALSE
-met3_PABpoints@data$target <- FALSE
-HWCpoints@data$target <- TRUE
-
-# Number of clusters
 k <- 5
-
-# Initialize fold column
-HWCpoints@data$fold <- NA
-
-for(ds in unique(HWCpoints@data$Source)) {
-  idx <- which(HWCpoints@data$Source == ds)
-  HWCpoints@data$fold[idx] <- sample(
-    rep(1:k, length.out = length(idx))
-  )
-}
-
-table(HWCpoints@data$fold, HWCpoints@data$Source)
-
-# Now for the PAB
-met1_PABpoints@data$fold <- sample(rep(1:k, length.out = nrow(met1_PABpoints)))
-met2_PABpoints@data$fold <- sample(rep(1:k, length.out = nrow(met2_PABpoints)))
-met3_PABpoints@data$fold <- sample(rep(1:k, length.out = nrow(met3_PABpoints)))
-
 # Now combine the datasets for each of the cross validations
 POINTS1 <- rbind(HWCpoints[c("edges_persqkm","habitat_suitability","dist_to_core", "bearact", "target", "fold")],met1_PABpoints[c("edges_persqkm","habitat_suitability","dist_to_core","bearact", "target", "fold")])
 POINTS2 <- rbind(HWCpoints[c("edges_persqkm","habitat_suitability","dist_to_core", "bearact", "target", "fold")],met2_PABpoints[c("edges_persqkm","habitat_suitability","dist_to_core","bearact", "target", "fold")])
@@ -848,23 +971,34 @@ library(pROC)
 
 # Create a dataframe to store the results
 # M1 stands for the PAB method and _1 stands for the hyperparameter methods
-results <- data.frame("M1_1" = rep(NA, 5), "M1_2" = rep(NA, 5), 
-                      "M2_1" = rep(NA, 5), "M2_2" = rep(NA, 5),
-                      "M3_1" = rep(NA, 5), "M3_2" = rep(NA, 5))
+results <- data.frame("RF1_1" = rep(NA, 5), "RF1_2" = rep(NA, 5), "LR1" = rep(NA, 5),"GBM1" = rep(NA, 5),
+                      "RF2_1" = rep(NA, 5), "RF2_2" = rep(NA, 5), "LR2" = rep(NA, 5),"GBM2" = rep(NA, 5),
+                      "RF3_1" = rep(NA, 5), "RF3_2" = rep(NA, 5), "LR3" = rep(NA, 5),"GBM3" = rep(NA, 5))
 rownames(results) <- c("K1", "K2", "K3", "K4", "K5")
-AUC <- results
-TSS <- results
+AUC2 <- results
+TSStwo <- results
+AUCsd2 <- results
+TSSsd2 <- results
+threshold2 <- results
 
 library(randomForest)
+library(gbm)
+
+all_observationsM1_2 <- c()
+all_predictionsM1_2 <- c() 
 
 # Start the loops for the analysis
-for (met in c(1:3)){
-  spdf <- get(paste0("POINTS", met))
-  for (kfold in c(1:k)){
+
+for (kfold in c(1:k)){
+  for (met in c(1:3)){
+    spdf <- get(paste0("POINTS", met))
     # Define the training and test datasets
     # Test is fold k
     test <- spdf[spdf@data$fold == kfold,]
     training <- spdf[spdf@data$fold != kfold,]
+    
+    ## FIRST THE RF MODEL ##
+    
     # Gen the models
     training <- training[apply(training@data,1,function(x){!any(is.na(x))}),] # remove NA's
     model1 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"])
@@ -874,6 +1008,11 @@ for (met in c(1:3)){
     predict1 <- predict(model1, test, type = "prob")
     predict2 <- predict(model2, test, type = "prob")
     
+    # For creating the pooled ROC for the end paper
+    if(met == 1){
+      all_observationsM1_2 <- c(all_observationsM1_2, test$target)
+      all_predictionsM1_2 <- c(all_predictionsM1_2, predict2[,2])
+    }
     # Record all the metrics for measuring the predictive capacity of the model
     
     # AUC (Area under ROC Curve)
@@ -887,162 +1026,743 @@ for (met in c(1:3)){
     auc_value2 <- auc(roc_curve2)
     
     # Record the AUC
-    AUC[kfold,((met*2)-1)] <- auc_value1
-    AUC[kfold,met*2] <- auc_value2
+    AUC2[kfold,((met*4)-3)] <- auc_value1
+    AUC2[kfold,((met*4)-2)] <- auc_value2
     
     # TSS (True Skill Statistic)
     # Balances sensitivity and specificity, providing a metric that is independent of prevalence
     # 1 indicates perfect agreement
     # TSS=(Sensitivity)+(Specificity)−1
     
-    # Find the optimal threshold model1 first
     optimal_threshold <- coords(roc_curve1, "best", ret = c("threshold", "sensitivity", "specificity"))
     # Extract sensitivity and specificity at the optimal threshold
-    sensitivity <- optimal_threshold["sensitivity"]
-    specificity <- optimal_threshold["specificity"]
+    sensitivity <- optimal_threshold$sensitivity[1]
+    specificity <- optimal_threshold$specificity[1]
     # Calculate TSS
     tss1 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    threshold2[kfold,((met*4)-3)] <- optimal_threshold$threshold[1]
     
     # Same for model2
     optimal_threshold2 <- coords(roc_curve2, "best", ret = c("threshold", "sensitivity", "specificity"))
-    sensitivity <- optimal_threshold2["sensitivity"]
-    specificity <- optimal_threshold2["specificity"]
+    sensitivity <- optimal_threshold2$sensitivity[1]
+    specificity <- optimal_threshold2$specificity[1]
     tss2 <- (sensitivity + specificity) - 1
-    
+    # Save threshold as well
+    threshold2[kfold,((met*4)-2)] <- optimal_threshold2$threshold[1]
     
     # Assign to the data frame
-    TSS[kfold,((met*2)-1)] <- tss1
-    TSS[kfold,met*2] <- tss2
+    TSStwo[kfold,((met*4)-3)] <- tss1
+    TSStwo[kfold,((met*4)-2)] <- tss2
+    
+    ## THEN LOGISTIC REGRESSION ##
+    # First gen the model
+    LR <- glm(
+      target ~ .,data=training@data[, !names(training@data) %in% "fold"],
+      family = binomial(link = "logit")
+    )
+    # Then predict based on the model
+    predictions <- predict(LR,newdata=test,type="response")
+    # Calculate the AUC
+    roc_ob <- roc(test$target, predictions)
+    aucLR <- auc(roc_ob)
+    # Now TSS
+    opt_threshold <- coords(roc_ob, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_threshold$sensitivity[1]
+    specificity <- opt_threshold$specificity[1]
+    # Calculate TSS
+    tssLR <- (sensitivity + specificity) - 1
+    # Save stats
+    AUC2[kfold,((met*4)-1)] <- aucLR
+    TSStwo[kfold,((met*4)-1)] <- tssLR
+    threshold2[kfold,((met*4)-1)] <- opt_threshold$threshold[1]
+    
+    ## THEN GBM (GRADIENT BOOSTING)
+    training@data$target <- as.numeric(training@data$target)-1
+    gbm <- gbm(target ~ .,data=training@data[, !names(training@data) %in% "fold"], distribution = "bernoulli", n.trees = 500, interaction.depth = 3,
+               shrinkage = 0.05, bag.fraction = 0.8)
+    # Predict
+    gbm_pred <- predict(gbm,newdata = test, n.trees = 500, type = "response")
+    # Calculate the AUC
+    roc_gbm <- roc(test$target, gbm_pred)
+    aucGBM <- auc(roc_gbm)
+    # Now TSS
+    opt_thresh <- coords(roc_gbm, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_thresh$sensitivity[1]
+    specificity <- opt_thresh$specificity[1]
+    # Calculate TSS
+    tssGBM <- (sensitivity + specificity) - 1
+    # Save stats
+    AUC2[kfold,(met*4)] <- aucGBM
+    TSStwo[kfold,(met*4)] <- tssGBM
+    threshold2[kfold,(met*4)] <- opt_thresh$threshold[1]
     
   }
 }
 
-####################################
-# Generate the maps for comparison #
-####################################
-# PAB method 1
-POINTS1 <- POINTS1[apply(POINTS1@data,1,function(x){!any(is.na(x))}),] # remove NA's
-model1 <- randomForest(target~.,data=POINTS1@data[, !names(POINTS1@data) %in% "fold"])
-# PAB method 2
-POINTS2 <- POINTS2[apply(POINTS2@data,1,function(x){!any(is.na(x))}),] # remove NA's
-model2 <- randomForest(target~.,data=POINTS2@data[, !names(POINTS2@data) %in% "fold"])
-# PAB method 3
-POINTS3 <- POINTS3[apply(POINTS3@data,1,function(x){!any(is.na(x))}),] # remove NA's
-model3 <- randomForest(target~.,data=POINTS3@data[, !names(POINTS3@data) %in% "fold"])
+##############################
+# Spatial splitting of k-folds
+###################
+library(sf)
 
-# Now compose the rasters for January
-Conf <- getValues(confzone)
-Conf[is.na(Conf)] <- 0
-JanAct <- Conf
-JanAct[JanAct==1] <- monthact$Activity[1]
-JanresponseDF <- data.frame(edges_persqkm=values(edges_persqkm),
-                            habitat_suitability=getValues(HSM),
-                            dist_to_core=dist_to_core@data@values,
-                            bearact=JanAct)
-# PAB method 1
-JanresponseDF1 <- cbind(JanresponseDF,predict(model1, JanresponseDF,"prob"))
-Jan1 <- classification
-Jan1@data@values <- JanresponseDF1$`TRUE`
-#Jan1 <- Jan1*0.5
-#Jan1[Jan1 < 0.15] <- NA
-leaflet() %>% addTiles() %>% 
-  #addHeatmap(data=track_coordinates,max = 25, radius = 20, blur = 20) %>% 
-  #addMarkers(data=HWCpoints, popup=HWCpoints$tags) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters") %>% 
-  addRasterImage(x=Jan1, 
-                 col=palette,
-                 opacity = .7)
-# Save for comparison
-#writeRaster(Jan1, "PAB1_Jan_ActMonth", format = "GTiff")
+POINTS1_sf <- st_as_sf(POINTS1)
+POINTS2_sf <- st_as_sf(POINTS2)
+POINTS3_sf <- st_as_sf(POINTS3)
 
-# PAB method 2
-JanresponseDF2 <- cbind(JanresponseDF,predict(model2, JanresponseDF,"prob"))
-Jan2 <- classification
-Jan2@data@values <- JanresponseDF2$`TRUE`
-#Jan2 <- Jan2*0.5
-#Jan2[Jan2 < 0.15] <- NA
-leaflet() %>% addTiles() %>% 
-  #addHeatmap(data=track_coordinates,max = 25, radius = 20, blur = 20) %>% 
-  #addMarkers(data=HWCpoints, popup=HWCpoints$tags) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters") %>% 
-  addRasterImage(x=Jan2, 
-                 col=palette,
-                 opacity = .7)
-# Save for comparison
-#writeRaster(Jan2, "PAB2_Jan_ActMonth", format = "GTiff")
+# They also need to be transformed for cv_blocks
+POINTS1_sf_UTM <- st_transform(POINTS1_sf, crs = 32633)
+POINTS2_sf_UTM <- st_transform(POINTS2_sf, crs = 32633)
+POINTS3_sf_UTM <- st_transform(POINTS3_sf, crs = 32633)
 
-# PAB method 3
-JanresponseDF3 <- cbind(JanresponseDF,predict(model3, JanresponseDF,"prob"))
-Jan3 <- classification
-Jan3@data@values <- JanresponseDF3$`TRUE`
-#Jan3 <- Jan3*0.5
-#Jan3[Jan3 < 0.15] <- NA
-leaflet() %>% addTiles() %>% 
-  #addHeatmap(data=track_coordinates,max = 25, radius = 20, blur = 20) %>% 
-  #addMarkers(data=HWCpoints, popup=HWCdetails$tags) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters") %>% 
-  addRasterImage(x=Jan3, 
-                 col=palette,
-                 opacity = .7)
-# Save for comparison
-#writeRaster(Jan3, "PAB3_Jan_ActMonth", format = "GTiff")
+library(blockCV) 
 
-# Rasters for October
-OctAct <- Conf
-OctAct[OctAct==1] <- monthact$Activity[10]
-OctresponseDF <- data.frame(edges_persqkm=values(edges_persqkm),
-                            habitat_suitability=getValues(HSM),
-                            dist_to_core=dist_to_core@data@values,
-                            bearact=OctAct)
-# PAB method 1
-OctresponseDF1 <- cbind(OctresponseDF,predict(model1, OctresponseDF,"prob"))
-Oct1 <- classification
-Oct1@data@values <- OctresponseDF1$`TRUE`
-#Oct1 <- Oct1*0.5
-#Oct1[Oct1 < 0.15] <- NA
-leaflet() %>% addTiles() %>% 
-  #addHeatmap(data=track_coordinates,max = 25, radius = 20, blur = 20) %>% 
-  #addMarkers(data=HWCpoints, popup=HWCdetails$tags) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters") %>% 
-  addRasterImage(x=Oct1, 
-                 col=palette,
-                 opacity = .7)
-# Save for comparison
-#writeRaster(Oct1, "PAB1_Oct_ActMonth", format = "GTiff")
+# Determine the value for theRange
+library(spdep)
+coords <- st_coordinates(POINTS1_sf_UTM)
+values <- as.numeric(POINTS1_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
 
-# PAB method 2
-OctresponseDF2 <- cbind(OctresponseDF,predict(model2, OctresponseDF,"prob"))
-Oct2 <- classification
-Oct2@data@values <- OctresponseDF2$`TRUE`
-#Oct2 <- Oct2*0.5
-#Oct2[Oct2 < 0.15] <- NA
-leaflet() %>% addTiles() %>% 
-  #addHeatmap(data=track_coordinates,max = 25, radius = 20, blur = 20) %>% 
-  #addMarkers(data=HWCpoints, popup=HWCdetails$tags) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters") %>% 
-  addRasterImage(x=Oct2, 
-                 col=palette,
-                 opacity = .7)
-#writeRaster(Oct2, "PAB2_Oct_ActMonth", format = "GTiff")
+cv_blocks1 <- spatialBlock(
+  speciesData = POINTS1_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks1$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS1 <- POINTS1
+for (i in seq_along(cv_blocks1$folds)) {
+  test_idx <- c(cv_blocks1$folds[[i]][[2]])
+  sp_POINTS1$fold[test_idx] <- i
+}
 
-# PAB method 3
-OctresponseDF3 <- cbind(OctresponseDF,predict(model3, OctresponseDF,"prob"))
-Oct3 <- classification
-Oct3@data@values <- OctresponseDF3$`TRUE`
-#Oct3 <- Oct3*0.5
-#Oct3[Oct3 < 0.15] <- NA
-leaflet() %>% addTiles() %>% 
-  #addHeatmap(data=track_coordinates,max = 25, radius = 20, blur = 20) %>% 
-  #addMarkers(data=HWCpoints, popup=HWCdetails$tags) %>% 
-  addMeasure(primaryLengthUnit = "meters",primaryAreaUnit = "sqmeters") %>% 
-  addRasterImage(x=Oct3, 
-                 col=palette,
-                 opacity = .7)
-#writeRaster(Oct3, "PAB3_Oct_ActMonth", format = "GTiff")
+#Now do for the other two
+# Method 2
+coords <- st_coordinates(POINTS2_sf_UTM)
+values <- as.numeric(POINTS2_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks2 <- spatialBlock(
+  speciesData = POINTS2_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks2$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS2 <- POINTS2
+for (i in seq_along(cv_blocks2$folds)) {
+  test_idx <- c(cv_blocks2$folds[[i]][[2]])
+  sp_POINTS2$fold[test_idx] <- i
+}
+
+# Method 3
+coords <- st_coordinates(POINTS3_sf_UTM)
+values <- as.numeric(POINTS3_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks3 <- spatialBlock(
+  speciesData = POINTS3_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks3$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS3 <- POINTS3
+for (i in seq_along(cv_blocks3$folds)) {
+  test_idx <- c(cv_blocks3$folds[[i]][[2]])
+  sp_POINTS3$fold[test_idx] <- i
+}
 
 
+spresults <- data.frame("RF1_1" = rep(NA, 3), "RF1_2" = rep(NA, 3), "LR1" = rep(NA, 3),"GBM1" = rep(NA, 3),
+                        "RF2_1" = rep(NA, 3), "RF2_2" = rep(NA, 3), "LR2" = rep(NA, 3),"GBM2" = rep(NA, 3),
+                        "RF3_1" = rep(NA, 3), "RF3_2" = rep(NA, 3), "LR3" = rep(NA, 3),"GBM3" = rep(NA, 3))
+rownames(spresults) <- c("K1", "K2", "K3")
+spAUC2 <- spresults
+spTSS2 <- spresults
+spthreshold2 <- spresults
+
+k <- 3
+
+all_observationsM1_2 <- c()
+all_predictionsM1_2 <- c() 
+
+for (kfold in c(1:k)){
+  for (met in c(1:3)){
+    spdf <- get(paste0("sp_POINTS", met))
+    # Define the training and test datasets
+    # Test is fold k
+    test <- spdf[spdf@data$fold == kfold,]
+    training <- spdf[spdf@data$fold != kfold,]
+    
+    ## FIRST THE RF MODEL ##
+    
+    # Gen the models
+    training <- training[apply(training@data,1,function(x){!any(is.na(x))}),] # remove NA's
+    model1 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"])
+    model2 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"], maxnodes=25)
+    
+    # Now predict against the test data and record key variables
+    predict1 <- predict(model1, test, type = "prob")
+    predict2 <- predict(model2, test, type = "prob")
+    
+    # For creating the pooled ROC for the end paper
+    if(met == 1){
+      all_observationsM1_2 <- c(all_observationsM1_2, test$target)
+      all_predictionsM1_2 <- c(all_predictionsM1_2, predict2[,2])
+    }
+    # Record all the metrics for measuring the predictive capacity of the model
+    
+    # AUC (Area under ROC Curve)
+    # Measures the ability of the model to discriminate between presence and absence points
+    # 1 indicates perfect discrimination
+    actual <- as.numeric(test@data$target)-1
+    roc_curve1 <- roc(response = actual, predictor = as.numeric(predict1[,"TRUE"]))
+    roc_curve2 <- roc(response = actual, predictor = as.numeric(predict2[,"TRUE"]))
+    # Calculate AUC
+    auc_value1 <- auc(roc_curve1)
+    auc_value2 <- auc(roc_curve2)
+    
+    # Record the AUC
+    spAUC2[kfold,((met*4)-3)] <- auc_value1
+    spAUC2[kfold,((met*4)-2)] <- auc_value2
+    
+    # TSS (True Skill Statistic)
+    # Balances sensitivity and specificity, providing a metric that is independent of prevalence
+    # 1 indicates perfect agreement
+    # TSS=(Sensitivity)+(Specificity)−1
+    
+    optimal_threshold <- coords(roc_curve1, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- optimal_threshold$sensitivity[1]
+    specificity <- optimal_threshold$specificity[1]
+    # Calculate TSS
+    tss1 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    spthreshold2[kfold,((met*4)-3)] <- optimal_threshold$threshold[1]
+    
+    # Same for model2
+    optimal_threshold2 <- coords(roc_curve2, "best", ret = c("threshold", "sensitivity", "specificity"))
+    sensitivity <- optimal_threshold2$sensitivity[1]
+    specificity <- optimal_threshold2$specificity[1]
+    tss2 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    spthreshold2[kfold,((met*4)-2)] <- optimal_threshold2$threshold[1]
+    
+    # Assign to the data frame
+    spTSS2[kfold,((met*4)-3)] <- tss1
+    spTSS2[kfold,((met*4)-2)] <- tss2
+    
+    ## THEN LOGISTIC REGRESSION ##
+    # First gen the model
+    LR <- glm(
+      target ~ .,data=training@data[, !names(training@data) %in% "fold"],
+      family = binomial(link = "logit")
+    )
+    # Then predict based on the model
+    predictions <- predict(LR,newdata=test,type="response")
+    # Calculate the AUC
+    roc_ob <- roc(test$target, predictions)
+    aucLR <- auc(roc_ob)
+    # Now TSS
+    opt_threshold <- coords(roc_ob, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_threshold$sensitivity[1]
+    specificity <- opt_threshold$specificity[1]
+    # Calculate TSS
+    tssLR <- (sensitivity + specificity) - 1
+    # Save stats
+    spAUC2[kfold,((met*4)-1)] <- aucLR
+    spTSS2[kfold,((met*4)-1)] <- tssLR
+    spthreshold2[kfold,((met*4)-1)] <- opt_threshold$threshold[1]
+    
+    ## THEN GBM (GRADIENT BOOSTING)
+    training@data$target <- as.numeric(training@data$target)-1
+    gbm <- gbm(target ~ .,data=training@data[, !names(training@data) %in% "fold"], distribution = "bernoulli", n.trees = 500, interaction.depth = 3,
+               shrinkage = 0.05, bag.fraction = 0.8)
+    # Predict
+    gbm_pred <- predict(gbm,newdata = test, n.trees = 500, type = "response")
+    # Calculate the AUC
+    roc_gbm <- roc(test$target, gbm_pred)
+    aucGBM <- auc(roc_gbm)
+    # Now TSS
+    opt_thresh <- coords(roc_gbm, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_thresh$sensitivity[1]
+    specificity <- opt_thresh$specificity[1]
+    # Calculate TSS
+    tssGBM <- (sensitivity + specificity) - 1
+    # Save stats
+    spAUC2[kfold,(met*4)] <- aucGBM
+    spTSS2[kfold,(met*4)] <- tssGBM
+    spthreshold2[kfold,(met*4)] <- opt_thresh$threshold[1]
+    
+  }
+}
 
 
+
+
+
+################################################################################
+#### DISTANCE FROM CORE BEAR AREA REMOVED ######################################
+################################################################################
+# As part of the ablation study, we also tested the model results with the core
+# bear area variable removed
+
+k <- 5
+
+# Now combine the datasets for each of the cross validations
+POINTS1 <- rbind(HWCpoints[c("edges_persqkm","habitat_suitability","bearloc", "target", "fold")],met1_PABpoints[c("edges_persqkm","habitat_suitability","bearloc", "target", "fold")])
+POINTS2 <- rbind(HWCpoints[c("edges_persqkm","habitat_suitability", "bearloc", "target", "fold")],met2_PABpoints[c("edges_persqkm","habitat_suitability","bearloc", "target", "fold")])
+POINTS3 <- rbind(HWCpoints[c("edges_persqkm","habitat_suitability", "bearloc", "target", "fold")],met3_PABpoints[c("edges_persqkm","habitat_suitability","bearloc", "target", "fold")])
+
+# For the model training, needed as factors
+POINTS1@data$target <- as.factor(POINTS1@data$target)
+POINTS2@data$target <- as.factor(POINTS2@data$target)
+POINTS3@data$target <- as.factor(POINTS3@data$target)
+
+#### K FOLD LOOP #####
+library(pROC)
+
+# Create a dataframe to store the results
+# M1 stands for the PAB method and _1 stands for the hyperparameter methods
+results <- data.frame("RF1_1" = rep(NA, 5), "RF1_2" = rep(NA, 5), "LR1" = rep(NA, 5),"GBM1" = rep(NA, 5),
+                      "RF2_1" = rep(NA, 5), "RF2_2" = rep(NA, 5), "LR2" = rep(NA, 5),"GBM2" = rep(NA, 5),
+                      "RF3_1" = rep(NA, 5), "RF3_2" = rep(NA, 5), "LR3" = rep(NA, 5),"GBM3" = rep(NA, 5))
+rownames(results) <- c("K1", "K2", "K3", "K4", "K5")
+AUC3 <- results
+TSS3 <- results
+AUCsd3 <- results
+TSSsd3 <- results
+threshold3 <- results
+
+library(randomForest)
+library(gbm)
+
+all_observationsM1_2 <- c()
+all_predictionsM1_2 <- c() 
+
+# Start the loops for the analysis
+for (kfold in c(1:k)){
+  for (met in c(1:3)){
+    spdf <- get(paste0("POINTS", met))
+    # Define the training and test datasets
+    # Test is fold k
+    test <- spdf[spdf@data$fold == kfold,]
+    training <- spdf[spdf@data$fold != kfold,]
+    
+    ## FIRST THE RF MODEL ##
+    
+    # Gen the models
+    training <- training[apply(training@data,1,function(x){!any(is.na(x))}),] # remove NA's
+    model1 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"])
+    model2 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"], maxnodes=25)
+    
+    # Now predict against the test data and record key variables
+    predict1 <- predict(model1, test, type = "prob")
+    predict2 <- predict(model2, test, type = "prob")
+    
+    # For creating the pooled ROC for the end paper
+    if(met == 1){
+      all_observationsM1_2 <- c(all_observationsM1_2, test$target)
+      all_predictionsM1_2 <- c(all_predictionsM1_2, predict2[,2])
+    }
+    # Record all the metrics for measuring the predictive capacity of the model
+    
+    # AUC (Area under ROC Curve)
+    # Measures the ability of the model to discriminate between presence and absence points
+    # 1 indicates perfect discrimination
+    actual <- as.numeric(test@data$target)-1
+    roc_curve1 <- roc(response = actual, predictor = as.numeric(predict1[,"TRUE"]))
+    roc_curve2 <- roc(response = actual, predictor = as.numeric(predict2[,"TRUE"]))
+    # Calculate AUC
+    auc_value1 <- auc(roc_curve1)
+    auc_value2 <- auc(roc_curve2)
+    
+    # Record the AUC
+    AUC3[kfold,((met*4)-3)] <- auc_value1
+    AUC3[kfold,((met*4)-2)] <- auc_value2
+    
+    # TSS (True Skill Statistic)
+    # Balances sensitivity and specificity, providing a metric that is independent of prevalence
+    # 1 indicates perfect agreement
+    # TSS=(Sensitivity)+(Specificity)−1
+    
+    optimal_threshold <- coords(roc_curve1, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- optimal_threshold$sensitivity[1]
+    specificity <- optimal_threshold$specificity[1]
+    # Calculate TSS
+    tss1 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    threshold3[kfold,((met*4)-3)] <- optimal_threshold$threshold[1]
+    
+    # Same for model2
+    optimal_threshold2 <- coords(roc_curve2, "best", ret = c("threshold", "sensitivity", "specificity"))
+    sensitivity <- optimal_threshold2$sensitivity[1]
+    specificity <- optimal_threshold2$specificity[1]
+    tss2 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    threshold3[kfold,((met*4)-2)] <- optimal_threshold2$threshold[1]
+    
+    # Assign to the data frame
+    TSS3[kfold,((met*4)-3)] <- tss1
+    TSS3[kfold,((met*4)-2)] <- tss2
+    
+    ## THEN LOGISTIC REGRESSION ##
+    # First gen the model
+    LR <- glm(
+      target ~ .,data=training@data[, !names(training@data) %in% "fold"],
+      family = binomial(link = "logit")
+    )
+    # Then predict based on the model
+    predictions <- predict(LR,newdata=test,type="response")
+    # Calculate the AUC
+    roc_ob <- roc(test$target, predictions)
+    aucLR <- auc(roc_ob)
+    # Now TSS
+    opt_threshold <- coords(roc_ob, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_threshold$sensitivity[1]
+    specificity <- opt_threshold$specificity[1]
+    # Calculate TSS
+    tssLR <- (sensitivity + specificity) - 1
+    # Save stats
+    AUC3[kfold,((met*4)-1)] <- aucLR
+    TSS3[kfold,((met*4)-1)] <- tssLR
+    threshold3[kfold,((met*4)-1)] <- opt_threshold$threshold[1]
+    
+    ## THEN GBM (GRADIENT BOOSTING)
+    training@data$target <- as.numeric(training@data$target)-1
+    gbm <- gbm(target ~ .,data=training@data[, !names(training@data) %in% "fold"], distribution = "bernoulli", n.trees = 500, interaction.depth = 3,
+               shrinkage = 0.05, bag.fraction = 0.8)
+    # Predict
+    gbm_pred <- predict(gbm,newdata = test, n.trees = 500, type = "response")
+    # Calculate the AUC
+    roc_gbm <- roc(test$target, gbm_pred)
+    aucGBM <- auc(roc_gbm)
+    # Now TSS
+    opt_thresh <- coords(roc_gbm, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_thresh$sensitivity[1]
+    specificity <- opt_thresh$specificity[1]
+    # Calculate TSS
+    tssGBM <- (sensitivity + specificity) - 1
+    # Save stats
+    AUC3[kfold,(met*4)] <- aucGBM
+    TSS3[kfold,(met*4)] <- tssGBM
+    threshold3[kfold,(met*4)] <- opt_thresh$threshold[1]
+    
+  }
+}
+
+
+##############################
+# Spatial splitting of k-folds
+###################
+library(sf)
+
+POINTS1_sf <- st_as_sf(POINTS1)
+POINTS2_sf <- st_as_sf(POINTS2)
+POINTS3_sf <- st_as_sf(POINTS3)
+
+# They also need to be transformed for cv_blocks
+POINTS1_sf_UTM <- st_transform(POINTS1_sf, crs = 32633)
+POINTS2_sf_UTM <- st_transform(POINTS2_sf, crs = 32633)
+POINTS3_sf_UTM <- st_transform(POINTS3_sf, crs = 32633)
+
+library(blockCV) 
+
+# Determine the value for theRange
+library(spdep)
+coords <- st_coordinates(POINTS1_sf_UTM)
+values <- as.numeric(POINTS1_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks1 <- spatialBlock(
+  speciesData = POINTS1_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks1$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS1 <- POINTS1
+for (i in seq_along(cv_blocks1$folds)) {
+  test_idx <- c(cv_blocks1$folds[[i]][[2]])
+  sp_POINTS1$fold[test_idx] <- i
+}
+
+#Now do for the other two
+# Method 2
+coords <- st_coordinates(POINTS2_sf_UTM)
+values <- as.numeric(POINTS2_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks2 <- spatialBlock(
+  speciesData = POINTS2_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks2$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS2 <- POINTS2
+for (i in seq_along(cv_blocks2$folds)) {
+  test_idx <- c(cv_blocks2$folds[[i]][[2]])
+  sp_POINTS2$fold[test_idx] <- i
+}
+
+# Method 3
+coords <- st_coordinates(POINTS3_sf_UTM)
+values <- as.numeric(POINTS3_sf_UTM$target)
+# Create neighbors within a distance threshold
+nb <- dnearneigh(coords, 0, 70000)  # This is the end value used (0.054 Moran's I)
+# and it works better with the even splitting
+listw <- nb2listw(nb, style = "W")
+moran.test(values, listw)
+
+cv_blocks3 <- spatialBlock(
+  speciesData = POINTS3_sf_UTM,
+  species = "target",
+  theRange = 70000,    # distance in meters
+  selection = "random",
+  k = 3
+)
+# Extract folds
+fold_ids <- cv_blocks3$folds
+# Now assign the fold IDs to the POINTS1
+sp_POINTS3 <- POINTS3
+for (i in seq_along(cv_blocks3$folds)) {
+  test_idx <- c(cv_blocks3$folds[[i]][[2]])
+  sp_POINTS3$fold[test_idx] <- i
+}
+
+
+spresults <- data.frame("RF1_1" = rep(NA, 3), "RF1_2" = rep(NA, 3), "LR1" = rep(NA, 3),"GBM1" = rep(NA, 3),
+                        "RF2_1" = rep(NA, 3), "RF2_2" = rep(NA, 3), "LR2" = rep(NA, 3),"GBM2" = rep(NA, 3),
+                        "RF3_1" = rep(NA, 3), "RF3_2" = rep(NA, 3), "LR3" = rep(NA, 3),"GBM3" = rep(NA, 3))
+rownames(spresults) <- c("K1", "K2", "K3")
+spAUC3 <- spresults
+spTSS3 <- spresults
+spthreshold3 <- spresults
+
+k <- 3
+
+for (kfold in c(1:k)){
+  for (met in c(1:3)){
+    spdf <- get(paste0("sp_POINTS", met))
+    # Define the training and test datasets
+    # Test is fold k
+    test <- spdf[spdf@data$fold == kfold,]
+    training <- spdf[spdf@data$fold != kfold,]
+    
+    ## FIRST THE RF MODEL ##
+    
+    # Gen the models
+    training <- training[apply(training@data,1,function(x){!any(is.na(x))}),] # remove NA's
+    model1 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"])
+    model2 <- randomForest(target~.,data=training@data[, !names(training@data) %in% "fold"], maxnodes=25)
+    
+    # Now predict against the test data and record key variables
+    predict1 <- predict(model1, test, type = "prob")
+    predict2 <- predict(model2, test, type = "prob")
+    
+    # For creating the pooled ROC for the end paper
+    if(met == 1){
+      all_observationsM1_2 <- c(all_observationsM1_2, test$target)
+      all_predictionsM1_2 <- c(all_predictionsM1_2, predict2[,2])
+    }
+    # Record all the metrics for measuring the predictive capacity of the model
+    
+    # AUC (Area under ROC Curve)
+    # Measures the ability of the model to discriminate between presence and absence points
+    # 1 indicates perfect discrimination
+    actual <- as.numeric(test@data$target)-1
+    roc_curve1 <- roc(response = actual, predictor = as.numeric(predict1[,"TRUE"]))
+    roc_curve2 <- roc(response = actual, predictor = as.numeric(predict2[,"TRUE"]))
+    # Calculate AUC
+    auc_value1 <- auc(roc_curve1)
+    auc_value2 <- auc(roc_curve2)
+    
+    # Record the AUC
+    spAUC3[kfold,((met*4)-3)] <- auc_value1
+    spAUC3[kfold,((met*4)-2)] <- auc_value2
+    
+    # TSS (True Skill Statistic)
+    # Balances sensitivity and specificity, providing a metric that is independent of prevalence
+    # 1 indicates perfect agreement
+    # TSS=(Sensitivity)+(Specificity)−1
+    
+    optimal_threshold <- coords(roc_curve1, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- optimal_threshold$sensitivity[1]
+    specificity <- optimal_threshold$specificity[1]
+    # Calculate TSS
+    tss1 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    spthreshold3[kfold,((met*4)-3)] <- optimal_threshold$threshold[1]
+    
+    # Same for model2
+    optimal_threshold2 <- coords(roc_curve2, "best", ret = c("threshold", "sensitivity", "specificity"))
+    sensitivity <- optimal_threshold2$sensitivity[1]
+    specificity <- optimal_threshold2$specificity[1]
+    tss2 <- (sensitivity + specificity) - 1
+    # Save threshold as well
+    spthreshold3[kfold,((met*4)-2)] <- optimal_threshold2$threshold[1]
+    
+    # Assign to the data frame
+    spTSS3[kfold,((met*4)-3)] <- tss1
+    spTSS3[kfold,((met*4)-2)] <- tss2
+    
+    ## THEN LOGISTIC REGRESSION ##
+    # First gen the model
+    LR <- glm(
+      target ~ .,data=training@data[, !names(training@data) %in% "fold"],
+      family = binomial(link = "logit")
+    )
+    # Then predict based on the model
+    predictions <- predict(LR,newdata=test,type="response")
+    # Calculate the AUC
+    roc_ob <- roc(test$target, predictions)
+    aucLR <- auc(roc_ob)
+    # Now TSS
+    opt_threshold <- coords(roc_ob, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_threshold$sensitivity[1]
+    specificity <- opt_threshold$specificity[1]
+    # Calculate TSS
+    tssLR <- (sensitivity + specificity) - 1
+    # Save stats
+    spAUC3[kfold,((met*4)-1)] <- aucLR
+    spTSS3[kfold,((met*4)-1)] <- tssLR
+    spthreshold3[kfold,((met*4)-1)] <- opt_threshold$threshold[1]
+    
+    ## THEN GBM (GRADIENT BOOSTING)
+    training@data$target <- as.numeric(training@data$target)-1
+    gbm <- gbm(target ~ .,data=training@data[, !names(training@data) %in% "fold"], distribution = "bernoulli", n.trees = 500, interaction.depth = 3,
+               shrinkage = 0.05, bag.fraction = 0.8)
+    # Predict
+    gbm_pred <- predict(gbm,newdata = test, n.trees = 500, type = "response")
+    # Calculate the AUC
+    roc_gbm <- roc(test$target, gbm_pred)
+    aucGBM <- auc(roc_gbm)
+    # Now TSS
+    opt_thresh <- coords(roc_gbm, "best", ret = c("threshold", "sensitivity", "specificity"))
+    # Extract sensitivity and specificity at the optimal threshold
+    sensitivity <- opt_thresh$sensitivity[1]
+    specificity <- opt_thresh$specificity[1]
+    # Calculate TSS
+    tssGBM <- (sensitivity + specificity) - 1
+    # Save stats
+    spAUC3[kfold,(met*4)] <- aucGBM
+    spTSS3[kfold,(met*4)] <- tssGBM
+    spthreshold3[kfold,(met*4)] <- opt_thresh$threshold[1]
+    
+  }
+}
+
+
+################################################################################
+# Export the gathered AUC and TSS data
+
+library(openxlsx)
+
+# Just make a big workbook to export everything and then work there
+wb <- createWorkbook()
+
+addWorksheet(wb, "AUC")
+writeData(wb, "AUC", AUC)
+
+addWorksheet(wb, "AUC2")
+writeData(wb, "AUC2", AUC2)
+
+addWorksheet(wb, "AUC3")
+writeData(wb, "AUC3", AUC3)
+
+addWorksheet(wb, "spAUC")
+writeData(wb, "spAUC", spAUC)
+
+addWorksheet(wb, "spAUC2")
+writeData(wb, "spAUC2", spAUC2)
+
+addWorksheet(wb, "spAUC3")
+writeData(wb, "spAUC3", spAUC3)
+
+addWorksheet(wb, "TSS")
+writeData(wb, "TSS", TSS)
+
+addWorksheet(wb, "TSS2")
+writeData(wb, "TSS2", TSStwo)
+
+addWorksheet(wb, "TSS3")
+writeData(wb, "TSS3", TSS3)
+
+addWorksheet(wb, "spTSS")
+writeData(wb, "spTSS", spTSS)
+
+addWorksheet(wb, "spTSS2")
+writeData(wb, "spTSS2", spTSS2)
+
+addWorksheet(wb, "spTSS3")
+writeData(wb, "spTSS3", spTSS3)
+
+addWorksheet(wb, "threshold1")
+writeData(wb, "threshold1", threshold)
+
+addWorksheet(wb, "threshold2")
+writeData(wb, "threshold2", threshold2)
+
+addWorksheet(wb, "threshold3")
+writeData(wb, "threshold3", threshold3)
+
+addWorksheet(wb, "spthreshold")
+writeData(wb, "spthreshold", spthreshold)
+
+addWorksheet(wb, "spthreshold2")
+writeData(wb, "spthreshold2", spthreshold2)
+
+addWorksheet(wb, "spthreshold3")
+writeData(wb, "spthreshold3", spthreshold3)
+
+saveWorkbook(wb,
+             "Review_Model_Results.xlsx",
+             overwrite = TRUE)
 
 
 

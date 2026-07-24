@@ -2,22 +2,22 @@ calcBearea <- function(BearLoc,
                        time_now=Sys.time(), # current time
                        forecast=48, # number of hours for which the risk is forcasted
                        Altitude_map,
-                       mean_dispersal_coef_a = 1.08046,   # intersect of dispersal model for mean dispersal
-                       mean_dispersal_coef_b = 0.48566,   # coefficient of dispersal model for mean dispersal
-                       upper_dispersal_coef_a = 2.0892,  # intersect of dispersal model for maximum dispersal
-                       upper_dispersal_coef_b = 0.4872   # coefficient of dispersal model for maximum dispersal
+                       mean_dispersal_coef_a = 0.5909,   # intersect of dispersal model for median dispersal
+                       mean_dispersal_coef_b = 0.4945,   # coefficient of dispersal model for median dispersal
+                       upper_dispersal_coef_a = 1.876,  # intersect of dispersal model for maximum dispersal
+                       upper_dispersal_coef_b = 0.504   # coefficient of dispersal model for maximum dispersal
 ) {
   BearAlt <- extract(Altitude_map,BearLoc)
   
   dtime <- as.numeric(difftime(time_now,BearLoc$datetime,units="hours"))
   dtime <- dtime + forecast
-  b <- 1/0.04474
-  a <- 0.71022*b
-  alpha <- 2.0892
-  beta <- 0.4872
-  dalt <- exp(5.15398+0.30816*log(dtime))
+  b <- 1/0.04773
+  a <- 0.60903*b
+  alpha <- 1.876
+  beta <- 0.504
+  dalt <- exp(5.361+0.2962*log(dtime))
   distance <- a*dtime/(b+dtime)
-  distance[dtime<24] <- exp(alpha+beta*log(dtime/24))[dtime<24] # use exponential dispersal model in first 24 hours
+  distance[dtime<10] <- exp(alpha+beta*log(dtime/24))[dtime<10] # use exponential dispersal model in first 10 hours
   distance <- distance*1000
   distance_RASTER <- distanceFromPoints(Altitude_map,BearLoc[1,])
   distance_MASK <- distance_RASTER<distance[1]
@@ -92,10 +92,10 @@ calcWhodunnit <- function(suspects,
                          Bear_names,
                          incident,
                          Altitude_map,
-                         mean_dispersal_coef_a = 1.08046,   # intersect of dispersal model for mean dispersal
-                         mean_dispersal_coef_b = 0.48566,   # coefficient of dispersal model for mean dispersal
-                         upper_dispersal_coef_a = 2.0892,  # intersect of dispersal model for maximum dispersal
-                         upper_dispersal_coef_b = 0.4872   # coefficient of dispersal model for maximum dispersal
+                         mean_dispersal_coef_a = 0.5909,   # intersect of dispersal model for median dispersal
+                         mean_dispersal_coef_b = 0.4945,   # coefficient of dispersal model for median dispersal
+                         upper_dispersal_coef_a = 1.876,  # intersect of dispersal model for maximum dispersal
+                         upper_dispersal_coef_b = 0.504   # coefficient of dispersal model for maximum dispersal
 ) {
   t_inc2 <- incident$datetime
   # calc probability that incident is caused by any known bears:
@@ -106,13 +106,13 @@ calcWhodunnit <- function(suspects,
   
   BearAlt <- extract(Altitude_map,suspects)
   
-  b <- 1/0.04474
-  a <- 0.71022*b
-  alpha <- 2.0892
-  beta <- 0.4872
-  dalt <- exp(5.15398+0.30816*log(dtime))
+  b <- 1/0.04773
+  a <- 0.60903*b
+  alpha <- 1.876
+  beta <- 0.504
+  dalt <- exp(5.361+0.2962*log(dtime))
   distance <- a*dtime/(b+dtime)
-  distance[dtime<24] <- exp(alpha+beta*log(dtime/24))[dtime<24] # use exponential dispersal model in first 24 hours
+  distance[dtime<10] <- exp(alpha+beta*log(dtime/24))[dtime<10] # use exponential dispersal model in first 10 hours
   distance <- distance*1000
   distance_RASTER <- distanceFromPoints(Altitude_map,suspects[1,])
   distance_MASK <- distance_RASTER<distance[1]
@@ -177,20 +177,20 @@ calcActivityArea <- function(BearLoc,dtime=1,BearAlt,bounds="median",Altitude_ma
   if(any(dtime<1)) {message("Warning: cannot calculate range for dtime less than 1 hour. Setting dtime to 1 hour.")}
   dtime[dtime<1] <- 1
   if(bounds=="upper"){
-    b <- 1/0.04474
-    a <- 0.71022*b
-    alpha <- 2.0892
-    beta <- 0.4872
-    dalt <- exp(5.15398+0.30816*log(dtime))
+    b <- 1/0.04773
+    a <- 0.60903*b
+    alpha <- 1.876
+    beta <- 0.504
+    dalt <- exp(5.361+0.2962*log(dtime))
   } else {
-    b <- 1/0.05528
-    a <- 0.30425*b
-    alpha <- 1.08046
-    beta <- 0.48566
-    dalt <- exp(3.91235+0.40901*log(dtime))
+    b <- 1/0.035137
+    a <- 0.14364*b
+    alpha <- 0.5909
+    beta <- 0.4945
+    dalt <- exp(3.89+0.4308*log(dtime))
   }
   distance <- a*dtime/(b+dtime)
-  distance[dtime<24] <- exp(alpha+beta*log(dtime/24))[dtime<24] # use exponential dispersal model in first 24 hours
+  distance[dtime<10] <- exp(alpha+beta*log(dtime/24))[dtime<10] # use exponential dispersal model in first 24 hours
   distance <- distance*1000
   distance_RASTER <- distanceFromPoints(Altitude_map,BearLoc[1,])
   distance_MASK <- distance_RASTER<distance[1]

@@ -391,20 +391,20 @@ server <- function(input, output, session) {
       # ADDED THE CONVERSION TO SF TO BE ABLE TO PLOT
       upperrange_poly <- st_as_sf(upperrange_poly)
       prefrange_poly <- st_as_sf(prefrange_poly)
-      b <- 1/0.04721162
-      a <- 0.7444089*b
-      alpha <- 2.0892
-      beta <- 0.4872
+      b <- 1/0.04773
+      a <- 0.60903*b
+      alpha <- 1.876
+      beta <- 0.504
       distanceU <- a*timepassed/(b+timepassed)
-      distanceU[timepassed<24] <- exp(alpha+beta*log(timepassed/24))[timepassed<24] # use exponential dispersal model in first 24 hours
+      distanceU[timepassed<10] <- exp(alpha+beta*log(timepassed/24))[timepassed<10] # use exponential dispersal model in first 24 hours
       distanceU <- distanceU*1000
       
-      b <- 1/0.04161593
-      a <- 0.2527037*b
-      alpha <- 1.08046
-      beta <- 0.48566
+      b <- 1/0.035137
+      a <- 0.14364*b
+      alpha <- 0.5909
+      beta <- 0.4945
       distanceM <- a*timepassed/(b+timepassed)
-      distanceM[timepassed<24] <- exp(alpha+beta*log(timepassed/24))[timepassed<24] # use exponential dispersal model in first 24 hours
+      distanceM[timepassed<10] <- exp(alpha+beta*log(timepassed/24))[timepassed<10] # use exponential dispersal model in first 24 hours
       distanceM <- distanceM*1000
         
         leafletProxy("MAP", session) %>%
